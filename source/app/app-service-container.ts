@@ -25,6 +25,7 @@ import DocumentManager from '@providers/documents'
 import FSAL from '@providers/fsal'
 import LinkProvider from '@providers/links'
 import LogProvider from '@providers/log'
+import MCPProvider from '@providers/mcp-server'
 import MenuProvider from '@providers/menu'
 import type ProviderContract from '@providers/provider-contract'
 import RecentDocumentsProvider from '@providers/recent-docs'
@@ -91,6 +92,7 @@ export class AppServiceContainer {
   private readonly _fsal: FSAL
   private readonly _documentManager: DocumentManager
   private _isBooted: boolean
+  private readonly _mcpProvider: MCPProvider
 
   constructor () {
     // NOTE: We need to instantiate the providers according to their dependence
@@ -107,6 +109,7 @@ export class AppServiceContainer {
     this._assetsProvider = new AssetsProvider(this._logProvider)
     this._cssProvider = new CssProvider(this._logProvider)
     this._statsProvider = new StatsProvider(this._logProvider)
+    this._mcpProvider = new MCPProvider(this._logProvider)
 
     this._appearanceProvider = new AppearanceProvider(this._logProvider, this._configProvider)
     this._dictionaryProvider = new DictionaryProvider(this._logProvider, this._configProvider)
@@ -162,6 +165,7 @@ export class AppServiceContainer {
     await this._informativeBoot(this._recentDocsProvider, 'RecentDocsProvider')
     await this._informativeBoot(this._assetsProvider, 'AssetsProvider')
     await this._informativeBoot(this._statsProvider, 'StatsProvider')
+    await this._informativeBoot(this._mcpProvider, 'MCPProvider')
 
     await this._informativeBoot(this._appearanceProvider, 'AppearanceProvider')
     await this._informativeBoot(this._dictionaryProvider, 'DictionaryProvider')
@@ -308,12 +312,18 @@ export class AppServiceContainer {
   public get commands (): CommandProvider { return this._commandProvider }
 
   /**
+   * Returns the MCP provider
+   */
+  public get mcp (): MCPProvider { return this._mcpProvider }
+
+  /**
    * Prepares quitting the app by shutting down the service providers
    */
   async shutdown (): Promise<void> {
     await this._safeShutdown(this._commandProvider, 'CommandProvider')
     await this._safeShutdown(this._documentManager, 'DocumentManager')
     await this._safeShutdown(this._fsal, 'FSAL')
+    await this._safeShutdown(this._mcpProvider, 'MCPProvider')
 
     await this._safeShutdown(this._windowProvider, 'WindowManager')
     await this._safeShutdown(this._trayProvider, 'TrayProvider')
