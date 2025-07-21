@@ -81,7 +81,7 @@
     "@lezer/highlight": "^1.2.3",
     "@lezer/lr": "^1.4.8",
     "@lezer/markdown": "^1.6.3",
-    "@modelcontextprotocol/sdk": "^1.11.4",
+    "@modelcontextprotocol/sdk": "^1.16.0",
     "@replit/codemirror-emacs": "^6.1.0",
     "@replit/codemirror-lang-nix": "^6.0.1",
     "@replit/codemirror-vim": "^6.3.0",
