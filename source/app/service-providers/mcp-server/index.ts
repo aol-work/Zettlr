@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { app } from 'electron'
 import express from 'express'
+import { readFile } from 'fs/promises'
 import type LogProvider from '../log'
 import type WorkspaceProvider from '../workspaces'
 import type { MDFileDescriptor, AnyDescriptor } from '@dts/common/fsal'
@@ -213,6 +214,20 @@ export default class MCPProvider {
                     },
                     required: ['query']
                   }
+                },
+                {
+                  name: 'zettlr_read_file',
+                  description: 'Read the full contents of a specified file. Allows retrieving the complete text of a note after identifying it via search tools.',
+                  inputSchema: {
+                    type: 'object',
+                    properties: {
+                      path: {
+                        type: 'string',
+                        description: 'The file path to read. Can be an absolute path or relative path within the workspace.'
+                      }
+                    },
+                    required: ['path']
+                  }
                 }
               ]
             }
@@ -302,6 +317,84 @@ export default class MCPProvider {
                   content: [{
                     type: 'text',
                     text: `Error performing search: ${error instanceof Error ? error.message : 'Unknown error'}`
+                  }]
+                }
+              })
+            }
+          } else if (name === 'zettlr_read_file') {
+            // Handle read file tool
+            const filePath = args.path as string
+
+            if (typeof filePath !== 'string' || filePath.trim() === '') {
+              res.json({
+                jsonrpc: '2.0',
+                id: message.id,
+                result: {
+                  content: [{
+                    type: 'text',
+                    text: 'Error: Path must be a non-empty string'
+                  }]
+                }
+              })
+              return
+            }
+
+            try {
+              // Get all files to validate the path exists in our workspace
+              const allFiles = this._workspaces.getAllFiles()
+              const fileDescriptor = allFiles.find(file => file.path === filePath)
+
+              if (!fileDescriptor) {
+                res.json({
+                  jsonrpc: '2.0',
+                  id: message.id,
+                  result: {
+                    content: [{
+                      type: 'text',
+                      text: `Error: File not found at path "${filePath}". Make sure the file exists in the current workspace.`
+                    }]
+                  }
+                })
+                return
+              }
+
+              // Only allow reading text files
+              if (fileDescriptor.type !== 'file') {
+                res.json({
+                  jsonrpc: '2.0',
+                  id: message.id,
+                  result: {
+                    content: [{
+                      type: 'text',
+                      text: `Error: "${filePath}" is not a file`
+                    }]
+                  }
+                })
+                return
+              }
+
+              // Read the file content
+              const fileContent = await readFile(filePath, 'utf8')
+
+              res.json({
+                jsonrpc: '2.0',
+                id: message.id,
+                result: {
+                  content: [{
+                    type: 'text',
+                    text: fileContent
+                  }]
+                }
+              })
+            } catch (error) {
+              this._logger.error('[MCP] Error reading file:', error)
+              res.json({
+                jsonrpc: '2.0',
+                id: message.id,
+                result: {
+                  content: [{
+                    type: 'text',
+                    text: `Error reading file "${filePath}": ${error instanceof Error ? error.message : 'Unknown error'}`
                   }]
                 }
               })
