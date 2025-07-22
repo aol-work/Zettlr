@@ -1,20 +1,112 @@
-import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { app } from 'electron'
 import express from 'express'
 import type LogProvider from '../log'
+import type WorkspaceProvider from '../workspaces'
+import type { MDFileDescriptor, AnyDescriptor } from '@dts/common/fsal'
 
-// Map to store active SSE transports by their session IDs
-const sseTransports = new Map<string, SSEServerTransport>()
+/**
+ * Returns a function that can be used as a filter to match file descriptors against a query.
+ * This replicates Zettlr's quick filter logic for title search.
+ *
+ * @param   {string}    query                   The query string to match against.
+ * @param   {boolean}   includeTitle            Whether or not to include YAML titles
+ * @param   {boolean}   includeH1               Whether or not to include headings level 1
+ *
+ * @return  {(item: AnyDescriptor) => boolean}  The filter function.
+ */
+function matchQuery(query: string, includeTitle: boolean, includeH1: boolean): (item: AnyDescriptor) => boolean {
+  const queries = query.split(' ').map(q => q.trim()).filter(q => q !== '')
+
+  return function (item: AnyDescriptor): boolean {
+    // Only match files, not directories
+    if (item.type !== 'file') {
+      return false
+    }
+
+    let allQueriesMatched = true
+
+    for (const q of queries.map(term => term.toLowerCase())) {
+      let queryMatched = false
+
+      // First, see if the filename gives a match
+      if (item.name.toLowerCase().includes(q)) {
+        queryMatched = true
+      }
+
+      const fileDescriptor = item as MDFileDescriptor
+
+      // If the query only consists of a "#" also include files that contain tags
+      if (q === '#' && fileDescriptor.tags.length > 0) {
+        queryMatched = true
+      }
+
+      // Let's check for tag matches
+      if (q.startsWith('#')) {
+        const tagMatch = fileDescriptor.tags.find(tag => tag.includes(q.substr(1)))
+        if (tagMatch !== undefined) {
+          queryMatched = true
+        }
+      }
+
+      const hasFrontmatter = fileDescriptor.frontmatter != null
+      const hasTitle = hasFrontmatter && 'title' in fileDescriptor.frontmatter
+
+      // Does the YAML frontmatter title match?
+      if (includeTitle && hasTitle && String(fileDescriptor.frontmatter.title).toLowerCase().includes(q)) {
+        queryMatched = true
+      }
+
+      // Should we use headings 1 and, if so, does it match?
+      if (includeH1 && fileDescriptor.firstHeading !== null) {
+        if (fileDescriptor.firstHeading.toLowerCase().includes(q)) {
+          queryMatched = true
+        }
+      }
+
+      // If any of the queries are not matched, set allQueriesMatched to false
+      if (!queryMatched) {
+        allQueriesMatched = false
+        break // No need to continue checking other queries if one is not matched
+      }
+    }
+
+    return allQueriesMatched
+  }
+}
+
+/**
+ * Gets the display title for a file, preferring YAML title, then H1 heading, then filename
+ *
+ * @param   {MDFileDescriptor}  file  The file descriptor
+ *
+ * @return  {string}                  The display title
+ */
+function getFileDisplayTitle(file: MDFileDescriptor): string {
+  // Prefer YAML title from frontmatter
+  if (file.yamlTitle !== undefined) {
+    return file.yamlTitle
+  }
+
+  // Then first H1 heading
+  if (file.firstHeading !== null) {
+    return file.firstHeading
+  }
+
+  // Finally, just the filename
+  return file.name
+}
 
 export default class MCPProvider {
   private server: McpServer | undefined
   private expressApp: express.Application
   private httpServer: ReturnType<express.Application['listen']> | undefined
   private readonly _logger: LogProvider
+  private readonly _workspaces: WorkspaceProvider
 
-  constructor (logger: LogProvider) {
+  constructor(logger: LogProvider, workspaces: WorkspaceProvider) {
     this._logger = logger
+    this._workspaces = workspaces
     this.server = undefined
     this.expressApp = express()
     this.httpServer = undefined
@@ -22,71 +114,243 @@ export default class MCPProvider {
     /** ─────────────── middleware ─────────────── **/
     this.expressApp.use(express.json())
 
-    // Legacy SSE endpoint for older clients
-    this.expressApp.get('/sse', async (req, res) => {
-      console.log(`[SSE] New connection request from ${req.ip}`)
+    // Streamable HTTP endpoint for new transport
+    this.expressApp.get('/message', async (req, res) => {
+      this._logger.verbose('[MCP] GET /message - initiating SSE stream')
 
-      const transport = new SSEServerTransport('/messages', res)
-      sseTransports.set(transport.sessionId, transport)
-      console.log(`[SSE] Created new transport with sessionId: ${transport.sessionId}`)
-
-      res.on('close', () => {
-        console.log(`[SSE] Connection closed for sessionId: ${transport.sessionId}`)
-        sseTransports.delete(transport.sessionId)
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type, Cache-Control'
       })
 
-      await this.server?.connect(transport)
-      console.log(`[SSE] Server connected to transport for sessionId: ${transport.sessionId}`)
+      // Send initial ready event
+      res.write('event: message\n')
+      res.write(`data: ${JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'notifications/initialized',
+        params: {}
+      })}\n\n`)
+
+      // Keep the connection alive
+      const keepAlive = setInterval(() => {
+        res.write(': keepalive\n\n')
+      }, 30000)
+
+      req.on('close', () => {
+        clearInterval(keepAlive)
+        this._logger.verbose('[MCP] SSE connection closed')
+      })
     })
 
-    // Legacy message endpoint for older clients
-    this.expressApp.post('/messages', async (req, res) => {
-      const sessionId = req.query.sessionId as string
-      console.log(`[Messages] Received message for sessionId: ${sessionId}`)
+    this.expressApp.post('/message', async (req, res) => {
+      this._logger.verbose('[MCP] POST /message - handling JSON-RPC request')
 
-      const transport = sseTransports.get(sessionId)
-      if (transport !== undefined) {
-        console.log(`[Messages] Processing message for sessionId: ${sessionId}`)
-        await transport.handlePostMessage(req, res, req.body)
-        console.log(`[Messages] Message processed for sessionId: ${sessionId}`)
-      } else {
-        console.log(`[Messages] Error: No transport found for sessionId: ${sessionId}`)
-        res.status(400).send('No transport found for sessionId')
+      try {
+        const message = req.body
+        this._logger.verbose(`[MCP] Received message: ${JSON.stringify(message)}`)
+
+        if (message.method === 'initialize') {
+          res.json({
+            jsonrpc: '2.0',
+            id: message.id,
+            result: {
+              protocolVersion: '2024-11-05',
+              capabilities: {
+                tools: {},
+                resources: {}
+              },
+              serverInfo: {
+                name: 'zettlr-mcp',
+                version: app.getVersion()
+              }
+            }
+          })
+        } else if (message.method === 'tools/list') {
+          res.json({
+            jsonrpc: '2.0',
+            id: message.id,
+            result: {
+              tools: [
+                {
+                  name: 'get-zettlr-version',
+                  description: 'Get the version of Zettlr',
+                  inputSchema: {
+                    type: 'object',
+                    properties: {},
+                    required: []
+                  }
+                },
+                {
+                  name: 'zettlr_search_title',
+                  description: 'Search Zettlr files by title, filename, or H1 heading. Uses AND logic for multiple terms.',
+                  inputSchema: {
+                    type: 'object',
+                    properties: {
+                      query: {
+                        type: 'string',
+                        description: 'Search terms to match against file titles. Multiple terms are treated with AND logic (all must match).'
+                      },
+                      includeYamlTitle: {
+                        type: 'boolean',
+                        description: 'Whether to include YAML frontmatter title in search (default: true)',
+                        default: true
+                      },
+                      includeH1Heading: {
+                        type: 'boolean',
+                        description: 'Whether to include first H1 heading in search (default: true)',
+                        default: true
+                      },
+                      maxResults: {
+                        type: 'integer',
+                        description: 'Maximum number of results to return (default: 50)',
+                        default: 50,
+                        minimum: 1,
+                        maximum: 1000
+                      }
+                    },
+                    required: ['query']
+                  }
+                }
+              ]
+            }
+          })
+        } else if (message.method === 'tools/call') {
+          const { name, arguments: args } = message.params
+
+          if (name === 'get-zettlr-version') {
+            res.json({
+              jsonrpc: '2.0',
+              id: message.id,
+              result: {
+                content: [{
+                  type: 'text',
+                  text: app.getVersion()
+                }]
+              }
+            })
+          } else if (name === 'zettlr_search_title') {
+            // Handle search tool
+            const query = args.query as string
+            const includeYamlTitle = typeof args.includeYamlTitle === 'boolean' ? args.includeYamlTitle : true
+            const includeH1Heading = typeof args.includeH1Heading === 'boolean' ? args.includeH1Heading : true
+            const maxResults = typeof args.maxResults === 'number' ? Math.min(Math.max(args.maxResults, 1), 1000) : 50
+
+            if (typeof query !== 'string' || query.trim() === '') {
+              res.json({
+                jsonrpc: '2.0',
+                id: message.id,
+                result: {
+                  content: [{
+                    type: 'text',
+                    text: 'Error: Query must be a non-empty string'
+                  }]
+                }
+              })
+              return
+            }
+
+            try {
+              // Get all files from all workspaces
+              const allFiles = this._workspaces.getAllFiles()
+                .filter((file): file is MDFileDescriptor => file.type === 'file')
+
+              // Create the filter function
+              const filter = matchQuery(query.trim(), includeYamlTitle, includeH1Heading)
+
+              // Apply the filter and limit results
+              const matchingFiles = allFiles
+                .filter(filter)
+                .slice(0, maxResults)
+                .map(file => ({
+                  title: getFileDisplayTitle(file),
+                  path: file.path,
+                  name: file.name,
+                  yamlTitle: file.yamlTitle,
+                  firstHeading: file.firstHeading,
+                  wordCount: file.wordCount,
+                  modtime: new Date(file.modtime).toISOString()
+                }))
+
+              const resultText = matchingFiles.length > 0
+                ? `Found ${matchingFiles.length} file(s) matching "${query}":\n\n` +
+                matchingFiles.map(file =>
+                  `• ${file.title}${file.title !== file.name ? ` (${file.name})` : ''}\n` +
+                  `  Path: ${file.path}\n` +
+                  `  Words: ${file.wordCount}, Modified: ${file.modtime}`
+                ).join('\n\n')
+                : `No files found matching "${query}"`
+
+              res.json({
+                jsonrpc: '2.0',
+                id: message.id,
+                result: {
+                  content: [{
+                    type: 'text',
+                    text: resultText
+                  }]
+                }
+              })
+            } catch (error) {
+              this._logger.error('[MCP] Error in title search:', error)
+              res.json({
+                jsonrpc: '2.0',
+                id: message.id,
+                result: {
+                  content: [{
+                    type: 'text',
+                    text: `Error performing search: ${error instanceof Error ? error.message : 'Unknown error'}`
+                  }]
+                }
+              })
+            }
+          } else {
+            res.json({
+              jsonrpc: '2.0',
+              id: message.id,
+              error: {
+                code: -32601,
+                message: `Method '${name}' not found`
+              }
+            })
+          }
+        } else {
+          res.json({
+            jsonrpc: '2.0',
+            id: message.id,
+            error: {
+              code: -32601,
+              message: `Method '${message.method}' not found`
+            }
+          })
+        }
+      } catch (error) {
+        this._logger.error('[MCP] Error handling message:', error)
+        res.status(500).json({
+          jsonrpc: '2.0',
+          id: req.body?.id,
+          error: {
+            code: -32603,
+            message: 'Internal error'
+          }
+        })
       }
+    })
+
+    // Handle CORS preflight requests
+    this.expressApp.options('/message', (req, res) => {
+      res.header('Access-Control-Allow-Origin', '*')
+      res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Cache-Control')
+      res.sendStatus(200)
     })
   }
 
   /** ─────────────── boot / shutdown ─────────────── **/
-  async boot (): Promise<void> {
+  async boot(): Promise<void> {
     this._logger.verbose('MCP provider booting up …')
-
-    this.server = new McpServer({
-      name: 'zettlr-mcp',
-      version: app.getVersion()
-    })
-
-    this.server.resource(
-      'version',
-      new ResourceTemplate('zettlr://version', { list: undefined }),
-      async (uri) => ({
-        contents: [{
-          uri: uri.href,
-          text: JSON.stringify({ version: app.getVersion() }),
-          mimeType: 'application/json'
-        }]
-      })
-    )
-
-    this.server.tool(
-      'get-zettlr-version',
-      {},
-      async () => ({
-        content: [{
-          type: 'text',
-          text: app.getVersion()
-        }]
-      })
-    )
 
     const PORT = 3001
     this.httpServer = this.expressApp.listen(PORT, () =>
@@ -94,7 +358,7 @@ export default class MCPProvider {
     )
   }
 
-  async shutdown (): Promise<void> {
+  async shutdown(): Promise<void> {
     if (this.httpServer) {
       this._logger.verbose('Shutting down MCP HTTP server …')
       await new Promise<void>((resolve) => this.httpServer?.close(() => resolve()))
