@@ -1,4 +1,4 @@
-import type { ToolSchema, ToolHandler } from './types'
+import type { ToolSchema, ToolHandler, ToolContext } from './types'
 import type { MDFileDescriptor, AnyDescriptor } from '@dts/common/fsal'
 
 /**
@@ -11,7 +11,7 @@ import type { MDFileDescriptor, AnyDescriptor } from '@dts/common/fsal'
  *
  * @return  {(item: AnyDescriptor) => boolean}  The filter function.
  */
-function matchQuery(query: string, includeTitle: boolean, includeH1: boolean): (item: AnyDescriptor) => boolean {
+function matchQuery (query: string, includeTitle: boolean, includeH1: boolean): (item: AnyDescriptor) => boolean {
   const queries = query.split(' ').map(q => q.trim()).filter(q => q !== '')
 
   return function (item: AnyDescriptor): boolean {
@@ -78,7 +78,7 @@ function matchQuery(query: string, includeTitle: boolean, includeH1: boolean): (
  *
  * @return  {string}                  The display title
  */
-function getFileDisplayTitle(file: MDFileDescriptor): string {
+function getFileDisplayTitle (file: MDFileDescriptor): string {
   // Prefer YAML title from frontmatter
   if (file.yamlTitle !== undefined) {
     return file.yamlTitle
@@ -125,7 +125,7 @@ export const zettlrSearchTitleSchema: ToolSchema = {
   }
 }
 
-export const zettlrSearchTitleHandler: ToolHandler = async (args, context) => {
+export const zettlrSearchTitleHandler: ToolHandler = async (args: { query: string, includeYamlTitle: boolean, includeH1Heading: boolean, maxResults: number }, context: ToolContext) => {
   const query = args.query as string
   const includeYamlTitle = typeof args.includeYamlTitle === 'boolean' ? args.includeYamlTitle : true
   const includeH1Heading = typeof args.includeH1Heading === 'boolean' ? args.includeH1Heading : true
@@ -143,7 +143,7 @@ export const zettlrSearchTitleHandler: ToolHandler = async (args, context) => {
   try {
     // Get all files from all workspaces
     const allFiles = context.workspaces.getAllFiles()
-      .filter((file): file is MDFileDescriptor => file.type === 'file')
+      .filter((file: AnyDescriptor): file is MDFileDescriptor => file.type === 'file')
 
     // Create the filter function
     const filter = matchQuery(query.trim(), includeYamlTitle, includeH1Heading)
@@ -152,14 +152,14 @@ export const zettlrSearchTitleHandler: ToolHandler = async (args, context) => {
     const matchingFiles = allFiles
       .filter(filter)
       .slice(0, maxResults)
-      .map(file => ({
+      .map((file: MDFileDescriptor) => ({
         title: getFileDisplayTitle(file),
         path: file.path,
         name: file.name,
         yamlTitle: file.yamlTitle,
         firstHeading: file.firstHeading,
         wordCount: file.wordCount,
-        modtime: new Date(file.modtime).toISOString()
+        modtime: new Date(file.modtime ?? 0).toISOString()
       }))
 
     const resultText = matchingFiles.length > 0

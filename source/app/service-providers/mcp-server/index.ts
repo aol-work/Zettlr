@@ -1,4 +1,4 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { app } from 'electron'
 import express from 'express'
 import type LogProvider from '../log'
@@ -14,7 +14,7 @@ export default class MCPProvider {
   private readonly _workspaces: WorkspaceProvider
   private readonly _fsal: FSAL
 
-  constructor(logger: LogProvider, workspaces: WorkspaceProvider, fsal: FSAL) {
+  constructor (logger: LogProvider, workspaces: WorkspaceProvider, fsal: FSAL) {
     this._logger = logger
     this._workspaces = workspaces
     this._fsal = fsal
@@ -99,7 +99,7 @@ export default class MCPProvider {
 
           // Find and execute the appropriate tool handler
           const handler = toolHandlers[name as keyof typeof toolHandlers]
-          if (handler) {
+          if (handler !== undefined) {
             try {
               const result = await handler(args, context)
               res.json({
@@ -163,7 +163,7 @@ export default class MCPProvider {
   }
 
   /** ─────────────── boot / shutdown ─────────────── **/
-  async boot(): Promise<void> {
+  async boot (): Promise<void> {
     this._logger.verbose('MCP provider booting up …')
 
     const PORT = 3001
@@ -172,7 +172,7 @@ export default class MCPProvider {
     )
   }
 
-  async shutdown(): Promise<void> {
+  async shutdown (): Promise<void> {
     if (this.httpServer) {
       this._logger.verbose('Shutting down MCP HTTP server …')
       await new Promise<void>((resolve) => this.httpServer?.close(() => resolve()))

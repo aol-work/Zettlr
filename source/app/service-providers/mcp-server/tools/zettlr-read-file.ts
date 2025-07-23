@@ -31,7 +31,7 @@ export const zettlrReadFileHandler: ToolHandler = async (args, context) => {
   try {
     // Get all files to validate the path exists in our workspace
     const allFiles = context.workspaces.getAllFiles()
-    const fileDescriptor = allFiles.find(file => file.path === filePath)
+    const fileDescriptor = allFiles.find((file: any) => file.path === filePath)
 
     if (!fileDescriptor) {
       return {

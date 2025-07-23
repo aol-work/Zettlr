@@ -1,5 +1,5 @@
-import type { ToolSchema, ToolHandler } from './types'
-import type { MDFileDescriptor, CodeFileDescriptor } from '@dts/common/fsal'
+import type { ToolSchema, ToolHandler, ToolContext } from './types'
+import type { MDFileDescriptor, CodeFileDescriptor, AnyDescriptor } from '@dts/common/fsal'
 import type { SearchTerm, SearchResult } from '@dts/common/search'
 import compileSearchTerms from '@common/util/compile-search-terms'
 
@@ -10,7 +10,7 @@ import compileSearchTerms from '@common/util/compile-search-terms'
  *
  * @return  {string}                  The display title
  */
-function getFileDisplayTitle(file: MDFileDescriptor): string {
+function getFileDisplayTitle (file: MDFileDescriptor): string {
   // Prefer YAML title from frontmatter
   if (file.yamlTitle !== undefined) {
     return file.yamlTitle
@@ -54,7 +54,7 @@ export const zettlrSearchKeywordSchema: ToolSchema = {
   }
 }
 
-export const zettlrSearchKeywordHandler: ToolHandler = async (args, context) => {
+export const zettlrSearchKeywordHandler: ToolHandler = async (args: { query: string, maxResults: number, maxSnippetsPerFile: number }, context: ToolContext) => {
   const query = args.query as string
   const maxResults = typeof args.maxResults === 'number' ? Math.min(Math.max(args.maxResults, 1), 1000) : 50
   const maxSnippetsPerFile = typeof args.maxSnippetsPerFile === 'number' ? Math.min(Math.max(args.maxSnippetsPerFile, 1), 50) : 10
@@ -74,7 +74,7 @@ export const zettlrSearchKeywordHandler: ToolHandler = async (args, context) => 
 
     // Get all files from all workspaces
     const allFiles = context.workspaces.getAllFiles()
-      .filter((file): file is MDFileDescriptor | CodeFileDescriptor =>
+      .filter((file: AnyDescriptor): file is MDFileDescriptor | CodeFileDescriptor => 
         file.type === 'file' || file.type === 'code')
 
     const searchResults: Array<{ file: MDFileDescriptor | CodeFileDescriptor, results: SearchResult[], weight: number }> = []
