@@ -116,7 +116,7 @@ export class AppServiceContainer {
     this._targetProvider = new TargetProvider(this._logProvider, this._fsal)
     this._linkProvider = new LinkProvider(this._logProvider, this._workspaces)
 
-    this._mcpProvider = new MCPProvider(this._logProvider, this._workspaces)
+    this._mcpProvider = new MCPProvider(this._logProvider, this._workspaces, this._fsal)
 
     // The document provider accesses only the FSAL in its constructor
     this._documentManager = new DocumentManager(this)
