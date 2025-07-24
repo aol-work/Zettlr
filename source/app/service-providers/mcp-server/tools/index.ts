@@ -10,6 +10,12 @@ export { zettlrSearchTitleSchema, zettlrSearchTitleHandler } from './zettlr-sear
 // Export zettlr-search-keyword tool
 export { zettlrSearchKeywordSchema, zettlrSearchKeywordHandler } from './zettlr-search-keyword'
 
+// Export zettlr-search-tag tool
+export { zettlrSearchTagSchema, zettlrSearchTagHandler } from './zettlr-search-tag'
+
+// Export zettlr-list-tags tool
+export { zettlrListTagsSchema, zettlrListTagsHandler } from './zettlr-list-tags'
+
 // Export zettlr-read-file tool
 export { zettlrReadFileSchema, zettlrReadFileHandler } from './zettlr-read-file'
 
@@ -17,6 +23,8 @@ export { zettlrReadFileSchema, zettlrReadFileHandler } from './zettlr-read-file'
 import { getZettlrVersionSchema, getZettlrVersionHandler } from './get-zettlr-version'
 import { zettlrSearchTitleSchema, zettlrSearchTitleHandler } from './zettlr-search-title'
 import { zettlrSearchKeywordSchema, zettlrSearchKeywordHandler } from './zettlr-search-keyword'
+import { zettlrSearchTagSchema, zettlrSearchTagHandler } from './zettlr-search-tag'
+import { zettlrListTagsSchema, zettlrListTagsHandler } from './zettlr-list-tags'
 import { zettlrReadFileSchema, zettlrReadFileHandler } from './zettlr-read-file'
 
 // Convenience array of all tool schemas
@@ -24,6 +32,8 @@ export const allToolSchemas = [
   getZettlrVersionSchema,
   zettlrSearchTitleSchema,
   zettlrSearchKeywordSchema,
+  zettlrSearchTagSchema,
+  zettlrListTagsSchema,
   zettlrReadFileSchema
 ]
 
@@ -32,5 +42,7 @@ export const toolHandlers = {
   'get-zettlr-version': getZettlrVersionHandler,
   'zettlr_search_title': zettlrSearchTitleHandler,
   'zettlr_search_keyword': zettlrSearchKeywordHandler,
+  'zettlr_search_tag': zettlrSearchTagHandler,
+  'zettlr_list_tags': zettlrListTagsHandler,
   'zettlr_read_file': zettlrReadFileHandler
 }
