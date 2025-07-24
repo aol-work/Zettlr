@@ -19,6 +19,9 @@ export { zettlrListTagsSchema, zettlrListTagsHandler } from './zettlr-list-tags'
 // Export zettlr-read-file tool
 export { zettlrReadFileSchema, zettlrReadFileHandler } from './zettlr-read-file'
 
+// Export common utilities
+export { getFileId } from './common'
+
 // Import for convenience arrays
 import { getZettlrVersionSchema, getZettlrVersionHandler } from './get-zettlr-version'
 import { zettlrSearchTitleSchema, zettlrSearchTitleHandler } from './zettlr-search-title'

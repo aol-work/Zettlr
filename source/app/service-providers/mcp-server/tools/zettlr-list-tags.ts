@@ -1,4 +1,5 @@
 import type { ToolSchema, ToolHandler, ToolContext } from './types'
+import { getFileId } from './common'
 
 export const zettlrListTagsSchema: ToolSchema = {
   name: 'zettlr_list_tags',
@@ -116,13 +117,17 @@ export const zettlrListTagsHandler: ToolHandler = async (args: { sortBy?: string
       if (tag.count <= 3) {
         for (const filePath of tag.files) {
           const fileName = filePath.split('/').pop() ?? filePath
-          resultText += `   📄 ${fileName}\n`
+          const fileId = getFileId(filePath, context)
+          const idDisplay = fileId ? ` [ID: ${fileId}]` : ''
+          resultText += `   📄 ${fileName}${idDisplay}\n`
         }
       } else {
         // Show first 2 files and indicate there are more
         for (let i = 0; i < Math.min(2, tag.files.length); i++) {
           const fileName = tag.files[i].split('/').pop() ?? tag.files[i]
-          resultText += `   📄 ${fileName}\n`
+          const fileId = getFileId(tag.files[i], context)
+          const idDisplay = fileId ? ` [ID: ${fileId}]` : ''
+          resultText += `   📄 ${fileName}${idDisplay}\n`
         }
         if (tag.files.length > 2) {
           resultText += `   ... and ${tag.files.length - 2} more file(s)\n`

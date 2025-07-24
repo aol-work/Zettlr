@@ -1,5 +1,6 @@
 import type { ToolSchema, ToolHandler, ToolContext } from './types'
 import type { MDFileDescriptor, AnyDescriptor } from '@dts/common/fsal'
+import { getFileId } from './common'
 
 /**
  * Returns a function that can be used as a filter to match file descriptors against a query.
@@ -156,6 +157,7 @@ export const zettlrSearchTitleHandler: ToolHandler = async (args: { query: strin
         title: getFileDisplayTitle(file),
         path: file.path,
         name: file.name,
+        id: getFileId(file.path, context),
         yamlTitle: file.yamlTitle,
         firstHeading: file.firstHeading,
         wordCount: file.wordCount,
@@ -167,6 +169,7 @@ export const zettlrSearchTitleHandler: ToolHandler = async (args: { query: strin
       matchingFiles.map(file =>
         `• ${file.title}${file.title !== file.name ? ` (${file.name})` : ''}\n` +
         `  Path: ${file.path}\n` +
+        (file.id ? `  ID: ${file.id}\n` : '') +
         `  Words: ${file.wordCount}, Modified: ${file.modtime}`
       ).join('\n\n')
       : `No files found matching "${query}"`

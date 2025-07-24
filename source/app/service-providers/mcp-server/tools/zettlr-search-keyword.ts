@@ -2,6 +2,7 @@ import type { ToolSchema, ToolHandler, ToolContext } from './types'
 import type { MDFileDescriptor, CodeFileDescriptor, AnyDescriptor } from '@dts/common/fsal'
 import type { SearchTerm, SearchResult } from '@dts/common/search'
 import compileSearchTerms from '@common/util/compile-search-terms'
+import { getFileId } from './common'
 
 /**
  * Gets the display title for a file, preferring YAML title, then H1 heading, then filename
@@ -112,8 +113,13 @@ export const zettlrSearchKeywordHandler: ToolHandler = async (args: { query: str
 
     for (const { file, results, weight } of limitedResults) {
       const fileTitle = file.type === 'file' ? getFileDisplayTitle(file) : file.name
+      const fileId = getFileId(file.path, context)
+      
       resultText += `📄 **${fileTitle}** (${file.name})\n`
       resultText += `   Path: ${file.path}\n`
+      if (fileId) {
+        resultText += `   ID: ${fileId}\n`
+      }
       resultText += `   Relevance: ${weight}, Matches: ${results.length}\n\n`
 
       // Show snippets, limited per file

@@ -1,5 +1,6 @@
 import type { ToolSchema, ToolHandler, ToolContext } from './types'
 import type { MDFileDescriptor } from '@dts/common/fsal'
+import { getFileId } from './common'
 
 /**
  * Gets the display title for a file, preferring YAML title, then H1 heading, then filename
@@ -146,9 +147,13 @@ export const zettlrSearchTagHandler: ToolHandler = async (args: { tag: string, s
     for (const file of limitedFiles) {
       const fileTitle = getFileDisplayTitle(file)
       const modifiedDate = new Date(file.modtime).toLocaleDateString()
+      const fileId = getFileId(file.path, context)
 
       resultText += `📄 **${fileTitle}** (${file.name})\n`
       resultText += `   Path: ${file.path}\n`
+      if (fileId) {
+        resultText += `   ID: ${fileId}\n`
+      }
       resultText += `   Modified: ${modifiedDate}\n`
 
       // Show all tags for this file to provide context
