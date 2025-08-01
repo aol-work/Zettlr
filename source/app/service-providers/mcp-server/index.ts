@@ -68,7 +68,7 @@ export default class MCPProvider {
             jsonrpc: '2.0',
             id: message.id,
             result: {
-              protocolVersion: '2024-11-05',
+              protocolVersion: '2025-06-18',
               capabilities: {
                 tools: {},
                 resources: {}
@@ -116,7 +116,8 @@ export default class MCPProvider {
                   content: [{
                     type: 'text',
                     text: `Error in tool ${name}: ${error instanceof Error ? error.message : 'Unknown error'}`
-                  }]
+                  }],
+                  isError: true
                 }
               })
             }

@@ -1,46 +1,39 @@
-import type { ToolSchema, ToolHandler, ToolContext } from './types'
-import type { MDFileDescriptor, AnyDescriptor } from '@dts/common/fsal'
+import type { ToolSchema, ToolHandler } from './types'
 import { getFileId } from './common'
+import type { MDFileDescriptor } from '@dts/common/fsal'
 
 /**
- * Returns a function that can be used as a filter to match file descriptors against a query.
- * This replicates Zettlr's quick filter logic for title search.
+ * Returns search results from fsal.findExact, i.e., results that include the
+ * search term in the filename. Both id and filename searches are supported,
+ * depending on the passed parameters.
  *
- * @param   {string}    query                   The query string to match against.
- * @param   {boolean}   includeTitle            Whether or not to include YAML titles
- * @param   {boolean}   includeH1               Whether or not to include headings level 1
+ * @param   {string}     searchTerms  The search terms to search for
+ * @param   {boolean}    includeTitle Whether to include title searches
+ * @param   {boolean}    includeH1 Whether to include first heading searches
+ * @param   {any}        workspaces   The workspace provider to use
  *
- * @return  {(item: AnyDescriptor) => boolean}  The filter function.
+ * @return  {MDFileDescriptor[]}      The search results
  */
-function matchQuery (query: string, includeTitle: boolean, includeH1: boolean): (item: AnyDescriptor) => boolean {
-  const queries = query.split(' ').map(q => q.trim()).filter(q => q !== '')
+function searchExact (searchTerms: string, includeTitle: boolean, includeH1: boolean, workspaces: any): MDFileDescriptor[] {
+  const queries = searchTerms.toLowerCase().split(' ').filter(q => q.trim() !== '')
+  const allFiles = workspaces.getAllFiles().filter((file: any) => file.type === 'file') as MDFileDescriptor[]
 
-  return function (item: AnyDescriptor): boolean {
-    // Only match files, not directories
-    if (item.type !== 'file') {
-      return false
-    }
+  return allFiles.filter((file: MDFileDescriptor) => isFileMatching(file, queries, includeTitle, includeH1))
 
+  function isFileMatching (fileDescriptor: MDFileDescriptor, queries: string[], includeTitle: boolean, includeH1: boolean): boolean {
     let allQueriesMatched = true
 
-    for (const q of queries.map(term => term.toLowerCase())) {
+    for (let q of queries) {
       let queryMatched = false
 
-      // First, see if the filename gives a match
-      if (item.name.toLowerCase().includes(q)) {
-        queryMatched = true
-      }
-
-      const fileDescriptor = item as MDFileDescriptor
-
-      // If the query only consists of a "#" also include files that contain tags
-      if (q === '#' && fileDescriptor.tags.length > 0) {
+      // Does the filename match?
+      if (fileDescriptor.name.toLowerCase().includes(q)) {
         queryMatched = true
       }
 
       // Let's check for tag matches
       if (q.startsWith('#')) {
-        const tagMatch = fileDescriptor.tags.find(tag => tag.includes(q.substr(1)))
+        const tagMatch = fileDescriptor.tags.find((tag: any) => typeof tag === 'string' && tag.includes(q.substr(1)))
         if (tagMatch !== undefined) {
           queryMatched = true
         }
@@ -79,19 +72,19 @@ function matchQuery (query: string, includeTitle: boolean, includeH1: boolean): 
  *
  * @return  {string}                  The display title
  */
-function getFileDisplayTitle (file: MDFileDescriptor): string {
-  // Prefer YAML title from frontmatter
-  if (file.yamlTitle !== undefined) {
-    return file.yamlTitle
+function getDisplayTitle (file: MDFileDescriptor): string {
+  // Check for YAML frontmatter title first
+  if (file.frontmatter != null && 'title' in file.frontmatter && typeof file.frontmatter.title === 'string') {
+    return file.frontmatter.title
   }
 
-  // Then first H1 heading
-  if (file.firstHeading !== null) {
+  // Then check for first heading
+  if (file.firstHeading != null && file.firstHeading.trim() !== '') {
     return file.firstHeading
   }
 
-  // Finally, just the filename
-  return file.name
+  // Fall back to filename without extension
+  return file.name.replace(/\.[^/.]+$/, '')
 }
 
 export const zettlrSearchTitleSchema: ToolSchema = {
@@ -104,6 +97,13 @@ export const zettlrSearchTitleSchema: ToolSchema = {
         type: 'string',
         description: 'Search terms to match against file titles. Multiple terms are treated with AND logic (all must match).'
       },
+      maxResults: {
+        type: 'integer',
+        description: 'Maximum number of results to return (default: 50)',
+        minimum: 1,
+        maximum: 1000,
+        default: 50
+      },
       includeYamlTitle: {
         type: 'boolean',
         description: 'Whether to include YAML frontmatter title in search (default: true)',
@@ -113,80 +113,75 @@ export const zettlrSearchTitleSchema: ToolSchema = {
         type: 'boolean',
         description: 'Whether to include first H1 heading in search (default: true)',
         default: true
-      },
-      maxResults: {
-        type: 'integer',
-        description: 'Maximum number of results to return (default: 50)',
-        default: 50,
-        minimum: 1,
-        maximum: 1000
       }
     },
     required: ['query']
   }
 }
 
-export const zettlrSearchTitleHandler: ToolHandler = async (args: { query: string, includeYamlTitle: boolean, includeH1Heading: boolean, maxResults: number }, context: ToolContext) => {
-  const query = args.query as string
-  const includeYamlTitle = typeof args.includeYamlTitle === 'boolean' ? args.includeYamlTitle : true
-  const includeH1Heading = typeof args.includeH1Heading === 'boolean' ? args.includeH1Heading : true
-  const maxResults = typeof args.maxResults === 'number' ? Math.min(Math.max(args.maxResults, 1), 1000) : 50
-
-  if (typeof query !== 'string' || query.trim() === '') {
-    return {
-      content: [{
-        type: 'text',
-        text: 'Error: Query must be a non-empty string'
-      }]
-    }
-  }
-
+export const zettlrSearchTitleHandler: ToolHandler = async (args, context) => {
   try {
-    // Get all files from all workspaces
-    const allFiles = context.workspaces.getAllFiles()
-      .filter((file: AnyDescriptor): file is MDFileDescriptor => file.type === 'file')
+    const query = args.query as string
+    const maxResults = (args.maxResults as number) || 50
+    const includeYamlTitle = args.includeYamlTitle !== false // Default to true
+    const includeH1Heading = args.includeH1Heading !== false // Default to true
 
-    // Create the filter function
-    const filter = matchQuery(query.trim(), includeYamlTitle, includeH1Heading)
+    if (typeof query !== 'string' || query.trim() === '') {
+      return {
+        content: [{
+          type: 'text',
+          text: 'Error: Query must be a non-empty string'
+        }],
+        isError: true
+      }
+    }
 
-    // Apply the filter and limit results
-    const matchingFiles = allFiles
-      .filter(filter)
-      .slice(0, maxResults)
-      .map((file: MDFileDescriptor) => ({
-        title: getFileDisplayTitle(file),
+    context.logger.verbose(`[MCP] Searching files by title for: "${query}"`)
+
+    // Get matching files
+    const matchingFiles = searchExact(query, includeYamlTitle, includeH1Heading, context.workspaces)
+
+    // Limit results
+    const limitedFiles = matchingFiles.slice(0, maxResults)
+
+    // Transform to the expected output format
+    const files = limitedFiles.map((file: MDFileDescriptor) => {
+      const fileTitle = getDisplayTitle(file)
+      const fileId = getFileId(file.path, context)
+
+      return {
+        title: fileTitle,
         path: file.path,
         name: file.name,
-        id: getFileId(file.path, context),
-        yamlTitle: file.yamlTitle,
-        firstHeading: file.firstHeading,
-        wordCount: file.wordCount,
-        modtime: new Date(file.modtime ?? 0).toISOString()
-      }))
+        id: fileId !== '' ? fileId : undefined,
+        modifiedDate: new Date(file.modtime).toISOString(),
+        createdDate: new Date(file.creationtime).toISOString(),
+        size: file.size,
+        tags: file.tags ?? []
+      }
+    })
 
-    const resultText = matchingFiles.length > 0
-      ? `Found ${matchingFiles.length} file(s) matching "${query}":\n\n` +
-      matchingFiles.map(file =>
-        `• ${file.title}${file.title !== file.name ? ` (${file.name})` : ''}\n` +
-        `  Path: ${file.path}\n` +
-        (file.id ? `  ID: ${file.id}\n` : '') +
-        `  Words: ${file.wordCount}, Modified: ${file.modtime}`
-      ).join('\n\n')
-      : `No files found matching "${query}"`
+    const result = {
+      query,
+      totalResults: matchingFiles.length,
+      files
+    }
 
     return {
       content: [{
         type: 'text',
-        text: resultText
-      }]
+        text: JSON.stringify(result, null, 2)
+      }],
+      isError: false
     }
   } catch (error) {
     context.logger.error('[MCP] Error in title search:', error)
     return {
       content: [{
         type: 'text',
-        text: `Error performing search: ${error instanceof Error ? error.message : 'Unknown error'}`
-      }]
+        text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+      }],
+      isError: true
     }
   }
 }

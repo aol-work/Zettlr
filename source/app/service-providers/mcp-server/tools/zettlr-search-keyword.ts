@@ -1,8 +1,8 @@
-import type { ToolSchema, ToolHandler, ToolContext } from './types'
-import type { MDFileDescriptor, CodeFileDescriptor, AnyDescriptor } from '@dts/common/fsal'
-import type { SearchTerm, SearchResult } from '@dts/common/search'
+import type { ToolSchema, ToolHandler } from './types'
 import compileSearchTerms from '@common/util/compile-search-terms'
 import { getFileId } from './common'
+import type { AnyDescriptor, MDFileDescriptor, CodeFileDescriptor } from '@dts/common/fsal'
+import type { SearchTerm, SearchResult } from '@dts/common/search'
 
 /**
  * Gets the display title for a file, preferring YAML title, then H1 heading, then filename
@@ -55,7 +55,7 @@ export const zettlrSearchKeywordSchema: ToolSchema = {
   }
 }
 
-export const zettlrSearchKeywordHandler: ToolHandler = async (args: { query: string, maxResults: number, maxSnippetsPerFile: number }, context: ToolContext) => {
+export const zettlrSearchKeywordHandler: ToolHandler = async (args, context) => {
   const query = args.query as string
   const maxResults = typeof args.maxResults === 'number' ? Math.min(Math.max(args.maxResults, 1), 1000) : 50
   const maxSnippetsPerFile = typeof args.maxSnippetsPerFile === 'number' ? Math.min(Math.max(args.maxSnippetsPerFile, 1), 50) : 10
@@ -65,7 +65,8 @@ export const zettlrSearchKeywordHandler: ToolHandler = async (args: { query: str
       content: [{
         type: 'text',
         text: 'Error: Query must be a non-empty string'
-      }]
+      }],
+      isError: true
     }
   }
 
@@ -78,7 +79,7 @@ export const zettlrSearchKeywordHandler: ToolHandler = async (args: { query: str
       .filter((file: AnyDescriptor): file is MDFileDescriptor | CodeFileDescriptor => 
         file.type === 'file' || file.type === 'code')
 
-    const searchResults: Array<{ file: MDFileDescriptor | CodeFileDescriptor, results: SearchResult[], weight: number }> = []
+    const searchResults: Array<{ file: MDFileDescriptor | CodeFileDescriptor, results: SearchResult[ ], weight: number }> = [ ]
 
     // Search each file using FSAL's search functionality
     for (const file of allFiles) {
@@ -98,70 +99,56 @@ export const zettlrSearchKeywordHandler: ToolHandler = async (args: { query: str
     searchResults.sort((a, b) => b.weight - a.weight)
     const limitedResults = searchResults.slice(0, maxResults)
 
-    if (limitedResults.length === 0) {
-      return {
-        content: [{
-          type: 'text',
-          text: `No files found containing "${query}"`
-        }]
-      }
-    }
+    const totalMatches = limitedResults.reduce((total, result) => total + result.results.length, 0)
 
-    // Format the results
-    const totalMatches = limitedResults.reduce((sum, result) => sum + result.results.length, 0)
-    let resultText = `Found ${totalMatches} matches in ${limitedResults.length} file(s) for "${query}":\n\n`
-
-    for (const { file, results, weight } of limitedResults) {
+    // Transform results to match output schema
+    const files = limitedResults.map(({ file, results, weight }) => {
       const fileTitle = file.type === 'file' ? getFileDisplayTitle(file) : file.name
       const fileId = getFileId(file.path, context)
-      
-      resultText += `📄 **${fileTitle}** (${file.name})\n`
-      resultText += `   Path: ${file.path}\n`
-      if (fileId) {
-        resultText += `   ID: ${fileId}\n`
+
+      // Limit snippets per file and extract relevant data
+      const snippets = results.slice(0, maxSnippetsPerFile).map(result => ({
+        line: result.line,
+        text: result.restext,
+        relevance: result.weight,
+        ranges: result.ranges
+      }))
+
+      return {
+        title: fileTitle,
+        path: file.path,
+        name: file.name,
+        id: fileId || undefined,
+        type: file.type,
+        relevance: weight,
+        matchCount: results.length,
+        snippets,
+        hasMoreMatches: results.length > maxSnippetsPerFile
       }
-      resultText += `   Relevance: ${weight}, Matches: ${results.length}\n\n`
+    })
 
-      // Show snippets, limited per file
-      const snippetsToShow = results.slice(0, maxSnippetsPerFile)
-      for (const result of snippetsToShow) {
-        if (result.line === -1) {
-          // Filename/tag match
-          resultText += `   📂 **[Filename/Tag Match]**: ${result.restext}\n\n`
-        } else {
-          // Content match with line number
-          const lineNum = result.line + 1 // Convert to 1-indexed
-          const snippet = result.restext.trim()
-          resultText += `   📝 **Line ${lineNum}**: ${snippet}\n\n`
-        }
-      }
-
-      if (results.length > maxSnippetsPerFile) {
-        const remaining = results.length - maxSnippetsPerFile
-        resultText += `   ... and ${remaining} more match(es) in this file\n\n`
-      }
-
-      resultText += '─'.repeat(50) + '\n\n'
-    }
-
-    if (searchResults.length > maxResults) {
-      const remaining = searchResults.length - maxResults
-      resultText += `\n... and ${remaining} more file(s) with matches (use maxResults parameter to see more)`
+    const result = {
+      query: query.trim(),
+      totalFiles: limitedResults.length,
+      totalMatches,
+      files
     }
 
     return {
       content: [{
         type: 'text',
-        text: resultText
-      }]
+        text: JSON.stringify(result, null, 2)
+      }],
+      isError: false
     }
   } catch (error) {
     context.logger.error('[MCP] Error in keyword search:', error)
     return {
       content: [{
         type: 'text',
-        text: `Error performing search: ${error instanceof Error ? error.message : 'Unknown error'}`
-      }]
+        text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+      }],
+      isError: true
     }
   }
 }

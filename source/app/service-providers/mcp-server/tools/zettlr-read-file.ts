@@ -24,42 +24,56 @@ export const zettlrReadFileHandler: ToolHandler = async (args, context) => {
       content: [{
         type: 'text',
         text: 'Error: Path must be a non-empty string'
-      }]
+      }],
+      isError: true
     }
   }
 
   try {
-    // Get all files to validate the path exists in our workspace
+    // Find the file in our workspace
     const allFiles = context.workspaces.getAllFiles()
-    const fileDescriptor = allFiles.find((file: any) => file.path === filePath)
+    const fileDescriptor = allFiles.find(file => file.path === filePath)
 
-    if (!fileDescriptor) {
+    if (fileDescriptor === undefined) {
+      // File not found, try to check if it exists on disk but isn't in our workspace
       return {
         content: [{
           type: 'text',
           text: `Error: File not found at path "${filePath}". Make sure the file exists in the current workspace.`
-        }]
+        }],
+        isError: true
       }
     }
 
     // Only allow reading text files
-    if (fileDescriptor.type !== 'file') {
+    if (fileDescriptor.type !== 'file' && fileDescriptor.type !== 'code') {
       return {
         content: [{
           type: 'text',
-          text: `Error: "${filePath}" is not a file`
-        }]
+          text: `Error: "${filePath}" is not a readable file type`
+        }],
+        isError: true
       }
     }
 
     // Read the file content
     const fileContent = await readFile(filePath, 'utf8')
 
+    const result = {
+      path: filePath,
+      name: fileDescriptor.name,
+      content: fileContent,
+      size: fileDescriptor.size || fileContent.length,
+      type: fileDescriptor.type,
+      encoding: 'utf8'
+    }
+
     return {
       content: [{
         type: 'text',
-        text: fileContent
-      }]
+        text: JSON.stringify(result, null, 2)
+      }],
+      isError: false
     }
   } catch (error) {
     context.logger.error('[MCP] Error reading file:', error)
@@ -67,7 +81,8 @@ export const zettlrReadFileHandler: ToolHandler = async (args, context) => {
       content: [{
         type: 'text',
         text: `Error reading file "${filePath}": ${error instanceof Error ? error.message : 'Unknown error'}`
-      }]
+      }],
+      isError: true
     }
   }
 }

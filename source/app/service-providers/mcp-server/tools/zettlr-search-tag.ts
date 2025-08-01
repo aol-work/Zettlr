@@ -1,6 +1,6 @@
-import type { ToolSchema, ToolHandler, ToolContext } from './types'
-import type { MDFileDescriptor } from '@dts/common/fsal'
+import type { ToolSchema, ToolHandler } from './types'
 import { getFileId } from './common'
+import type { AnyDescriptor, MDFileDescriptor } from '@dts/common/fsal'
 
 /**
  * Gets the display title for a file, preferring YAML title, then H1 heading, then filename
@@ -10,18 +10,18 @@ import { getFileId } from './common'
  * @return  {string}                  The display title
  */
 function getFileDisplayTitle (file: MDFileDescriptor): string {
-  // Prefer YAML title from frontmatter
-  if (file.yamlTitle !== undefined) {
-    return file.yamlTitle
+  // Check for YAML frontmatter title first
+  if (file.frontmatter != null && 'title' in file.frontmatter && typeof file.frontmatter.title === 'string') {
+    return file.frontmatter.title
   }
 
-  // Then first H1 heading
-  if (file.firstHeading !== null) {
+  // Then check for first heading
+  if (file.firstHeading != null && file.firstHeading.trim() !== '') {
     return file.firstHeading
   }
 
-  // Finally, just the filename
-  return file.name
+  // Fall back to filename without extension
+  return file.name.replace(/\.[^/.]+$/, '')
 }
 
 export const zettlrSearchTagSchema: ToolSchema = {
@@ -52,144 +52,127 @@ export const zettlrSearchTagSchema: ToolSchema = {
   }
 }
 
-export const zettlrSearchTagHandler: ToolHandler = async (args: { tag: string, sortBy?: string, maxResults?: number }, context: ToolContext) => {
-  const searchTag = args.tag as string
-  const sortBy = args.sortBy ?? 'relevance'
+export const zettlrSearchTagHandler: ToolHandler = async (args, context) => {
+  const tag = args.tag as string
   const maxResults = typeof args.maxResults === 'number' ? Math.min(Math.max(args.maxResults, 1), 1000) : 50
+  const sortBy = (args.sortBy as string) || 'relevance'
 
-  if (typeof searchTag !== 'string' || searchTag.trim() === '') {
+  if (typeof tag !== 'string' || tag.trim() === '') {
     return {
       content: [{
         type: 'text',
         text: 'Error: Tag must be a non-empty string'
-      }]
+      }],
+      isError: true
     }
   }
 
+  const searchTag = tag.toLowerCase().trim()
+  context.logger.verbose(`[MCP] Searching for tag: "${searchTag}"`)
+
   try {
-    // Get the tag database from workspaces
-    const tagDatabase = context.workspaces.getTags()
-
-    // Clean the search tag (remove # if present, convert to lowercase for case-insensitive search)
-    const cleanSearchTag = searchTag.replace(/^#+/, '').toLowerCase().trim()
-
-    if (cleanSearchTag === '') {
-      return {
-        content: [{
-          type: 'text',
-          text: 'Error: Tag cannot be empty after removing # prefix'
-        }]
-      }
-    }
-
-    // Find matching files
-    const matchingFiles: string[] = []
-
-    for (const [ filePath, tags ] of tagDatabase) {
-      // Check if any tag matches (case-insensitive)
-      const hasMatchingTag = tags.some(tag =>
-        tag.toLowerCase() === cleanSearchTag
-      )
-
-      if (hasMatchingTag) {
-        matchingFiles.push(filePath)
-      }
-    }
-
-    if (matchingFiles.length === 0) {
-      return {
-        content: [{
-          type: 'text',
-          text: `No files found with tag "${cleanSearchTag}"`
-        }]
-      }
-    }
-
-    // Get file descriptors for the matching files
+    // Get all files from all workspaces
     const allFiles = context.workspaces.getAllFiles()
-    const matchingFileDescriptors = allFiles
-      .filter(file => file.type === 'file' && matchingFiles.includes(file.path))
-      .map(file => file as MDFileDescriptor)
+      .filter((file: AnyDescriptor): file is MDFileDescriptor => file.type === 'file')
+
+    const matchingFiles: Array<{ file: MDFileDescriptor, relevance: number }> = []
+
+    for (const file of allFiles) {
+      let relevance = 0
+
+      // Check inline tags
+      const inlineTags = file.tags.filter((t: string) => t.toLowerCase().includes(searchTag))
+      relevance += inlineTags.length * 2 // Higher weight for exact tag matches
+
+      // Check YAML frontmatter tags
+      if (file.frontmatter != null) {
+        const yamlTags: string[] = []
+        
+        // Check both 'tags' and 'keywords' fields
+        if (Array.isArray(file.frontmatter.tags)) {
+          yamlTags.push(...file.frontmatter.tags.map((t: any) => String(t).toLowerCase()))
+        }
+        
+        if (Array.isArray(file.frontmatter.keywords)) {
+          yamlTags.push(...file.frontmatter.keywords.map((k: any) => String(k).toLowerCase()))
+        }
+
+        const yamlMatches = yamlTags.filter((t: string) => t.includes(searchTag))
+        relevance += yamlMatches.length
+      }
+
+      if (relevance > 0) {
+        matchingFiles.push({ file, relevance })
+      }
+    }
 
     // Sort the results
-    let sortedFiles = [...matchingFileDescriptors]
-
-    switch (sortBy) {
-      case 'name':
-        sortedFiles.sort((a, b) => a.name.localeCompare(b.name))
-        break
-      case 'modified':
-        sortedFiles.sort((a, b) => b.modtime - a.modtime)
-        break
-      case 'created':
-        sortedFiles.sort((a, b) => b.creationtime - a.creationtime)
-        break
-      case 'relevance':
-      default:
-        // For relevance, we could sort by multiple factors
-        // For now, let's sort by modification time as a proxy for relevance
-        sortedFiles.sort((a, b) => b.modtime - a.modtime)
-        break
+    if (sortBy === 'name') {
+      matchingFiles.sort((a, b) => a.file.name.localeCompare(b.file.name))
+    } else if (sortBy === 'modified') {
+      matchingFiles.sort((a, b) => b.file.modtime - a.file.modtime)
+    } else if (sortBy === 'created') {
+      matchingFiles.sort((a, b) => b.file.creationtime - a.file.creationtime)
+    } else {
+      // Default: sort by relevance
+      matchingFiles.sort((a, b) => b.relevance - a.relevance)
     }
 
     // Limit results
-    const limitedFiles = sortedFiles.slice(0, maxResults)
+    const limitedResults = matchingFiles.slice(0, maxResults)
 
-    // Format the results
-    let resultText = `Found ${matchingFiles.length} file(s) with tag "#${cleanSearchTag}"`
-
-    if (matchingFiles.length > maxResults) {
-      resultText += ` (showing first ${maxResults})`
-    }
-
-    resultText += ':\n\n'
-
-    for (const file of limitedFiles) {
+    // Transform to expected output format
+    const files = limitedResults.map(({ file }) => {
       const fileTitle = getFileDisplayTitle(file)
-      const modifiedDate = new Date(file.modtime).toLocaleDateString()
       const fileId = getFileId(file.path, context)
 
-      resultText += `📄 **${fileTitle}** (${file.name})\n`
-      resultText += `   Path: ${file.path}\n`
-      if (fileId) {
-        resultText += `   ID: ${fileId}\n`
-      }
-      resultText += `   Modified: ${modifiedDate}\n`
-
-      // Show all tags for this file to provide context
-      const fileTags = tagDatabase.get(file.path) ?? []
-      if (fileTags.length > 0) {
-        const tagList = fileTags.map(tag => `#${tag}`).join(', ')
-        resultText += `   Tags: ${tagList}\n`
+      // Extract the tags that actually match
+      const fileTags = [...file.tags]
+      if (file.frontmatter != null) {
+        if (Array.isArray(file.frontmatter.tags)) {
+          fileTags.push(...file.frontmatter.tags.map((t: any) => String(t)))
+        }
+        if (Array.isArray(file.frontmatter.keywords)) {
+          fileTags.push(...file.frontmatter.keywords.map((k: any) => String(k)))
+        }
       }
 
-      // Add file size if available
-      if (file.size > 0) {
-        const sizeKB = Math.round(file.size / 1024 * 10) / 10
-        resultText += `   Size: ${sizeKB} KB\n`
+      return {
+        title: fileTitle,
+        path: file.path,
+        name: file.name,
+        id: fileId || undefined,
+        modifiedDate: new Date(file.modtime).toISOString(),
+        createdDate: new Date(file.creationtime).toISOString(),
+        size: file.size,
+        tags: fileTags
       }
-
-      resultText += '\n'
-    }
-
-    if (matchingFiles.length > maxResults) {
-      const remaining = matchingFiles.length - maxResults
-      resultText += `\n... and ${remaining} more file(s) with tag "#${cleanSearchTag}" (use maxResults parameter to see more)`
-    }
+    })
 
     return {
       content: [{
         type: 'text',
-        text: resultText
-      }]
+        text: JSON.stringify({
+          tag: searchTag,
+          totalResults: matchingFiles.length,
+          files
+        })
+      }],
+      isError: false
     }
   } catch (error) {
     context.logger.error('[MCP] Error in tag search:', error)
     return {
       content: [{
         type: 'text',
-        text: `Error performing tag search: ${error instanceof Error ? error.message : 'Unknown error'}`
-      }]
+        text: JSON.stringify({
+          error: error instanceof Error ? error.message : 'Unknown error',
+          tag: tag || '',
+          totalResults: 0,
+          files: []
+        })
+      }],
+      isError: true
     }
   }
 }
