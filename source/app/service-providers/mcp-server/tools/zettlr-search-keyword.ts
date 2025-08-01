@@ -1,30 +1,10 @@
 import type { ToolSchema, ToolHandler } from './types'
 import compileSearchTerms from '@common/util/compile-search-terms'
-import { getFileId } from './common'
+import { getFileId, getFileDisplayTitle } from './common'
 import type { AnyDescriptor, MDFileDescriptor, CodeFileDescriptor } from '@dts/common/fsal'
 import type { SearchTerm, SearchResult } from '@dts/common/search'
 
-/**
- * Gets the display title for a file, preferring YAML title, then H1 heading, then filename
- *
- * @param   {MDFileDescriptor}  file  The file descriptor
- *
- * @return  {string}                  The display title
- */
-function getFileDisplayTitle (file: MDFileDescriptor): string {
-  // Prefer YAML title from frontmatter
-  if (file.yamlTitle !== undefined) {
-    return file.yamlTitle
-  }
 
-  // Then first H1 heading
-  if (file.firstHeading !== null) {
-    return file.firstHeading
-  }
-
-  // Finally, just the filename
-  return file.name
-}
 
 export const zettlrSearchKeywordSchema: ToolSchema = {
   name: 'zettlr_search_keyword',
@@ -157,17 +137,14 @@ export const zettlrSearchKeywordHandler: ToolHandler = async (args, context) => 
   }
 
   try {
-    // Compile the search terms using Zettlr's search term compiler
     const searchTerms: SearchTerm[] = compileSearchTerms(query.trim())
 
-    // Get all files from all workspaces
     const allFiles = context.workspaces.getAllFiles()
       .filter((file: AnyDescriptor): file is MDFileDescriptor | CodeFileDescriptor => 
         file.type === 'file' || file.type === 'code')
 
     const searchResults: Array<{ file: MDFileDescriptor | CodeFileDescriptor, results: SearchResult[ ], weight: number }> = [ ]
 
-    // Search each file using FSAL's search functionality
     for (const file of allFiles) {
       try {
         const results: SearchResult[] = await context.fsal.searchFile(file, searchTerms)
@@ -177,22 +154,16 @@ export const zettlrSearchKeywordHandler: ToolHandler = async (args, context) => 
         }
       } catch (error) {
         context.logger.error(`[MCP] Error searching file ${file.path}:`, error)
-        // Continue with other files
       }
     }
 
-    // Sort by weight (relevance) and limit results
     searchResults.sort((a, b) => b.weight - a.weight)
     const limitedResults = searchResults.slice(0, maxResults)
-
     const totalMatches = limitedResults.reduce((total, result) => total + result.results.length, 0)
-
-    // Transform results to match output schema
     const files = limitedResults.map(({ file, results, weight }) => {
       const fileTitle = file.type === 'file' ? getFileDisplayTitle(file) : file.name
       const fileId = getFileId(file.path, context)
 
-      // Limit snippets per file and extract relevant data
       const snippets = results.slice(0, maxSnippetsPerFile).map(result => ({
         line: result.line,
         text: result.restext,
@@ -221,12 +192,10 @@ export const zettlrSearchKeywordHandler: ToolHandler = async (args, context) => 
     }
 
     return {
-      // Backwards compatibility: unstructured content
       content: [{
         type: 'text',
         text: JSON.stringify(result, null, 2)
       }],
-      // MCP 2025-06-18: Structured content for better client integration
       structuredContent: result,
       isError: false
     }

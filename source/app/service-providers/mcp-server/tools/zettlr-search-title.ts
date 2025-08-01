@@ -1,5 +1,5 @@
 import type { ToolSchema, ToolHandler } from './types'
-import { getFileId } from './common'
+import { getFileId, getFileDisplayTitle } from './common'
 import type { MDFileDescriptor } from '@dts/common/fsal'
 
 /**
@@ -26,12 +26,10 @@ function searchExact (searchTerms: string, includeTitle: boolean, includeH1: boo
     for (let q of queries) {
       let queryMatched = false
 
-      // Does the filename match?
       if (fileDescriptor.name.toLowerCase().includes(q)) {
         queryMatched = true
       }
 
-      // Let's check for tag matches
       if (q.startsWith('#')) {
         const tagMatch = fileDescriptor.tags.find((tag: any) => typeof tag === 'string' && tag.includes(q.substr(1)))
         if (tagMatch !== undefined) {
@@ -42,22 +40,19 @@ function searchExact (searchTerms: string, includeTitle: boolean, includeH1: boo
       const hasFrontmatter = fileDescriptor.frontmatter != null
       const hasTitle = hasFrontmatter && 'title' in fileDescriptor.frontmatter
 
-      // Does the YAML frontmatter title match?
       if (includeTitle && hasTitle && String(fileDescriptor.frontmatter.title).toLowerCase().includes(q)) {
         queryMatched = true
       }
 
-      // Should we use headings 1 and, if so, does it match?
       if (includeH1 && fileDescriptor.firstHeading !== null) {
         if (fileDescriptor.firstHeading.toLowerCase().includes(q)) {
           queryMatched = true
         }
       }
 
-      // If any of the queries are not matched, set allQueriesMatched to false
       if (!queryMatched) {
         allQueriesMatched = false
-        break // No need to continue checking other queries if one is not matched
+        break
       }
     }
 
@@ -65,27 +60,7 @@ function searchExact (searchTerms: string, includeTitle: boolean, includeH1: boo
   }
 }
 
-/**
- * Gets the display title for a file, preferring YAML title, then H1 heading, then filename
- *
- * @param   {MDFileDescriptor}  file  The file descriptor
- *
- * @return  {string}                  The display title
- */
-function getDisplayTitle (file: MDFileDescriptor): string {
-  // Check for YAML frontmatter title first
-  if (file.frontmatter != null && 'title' in file.frontmatter && typeof file.frontmatter.title === 'string') {
-    return file.frontmatter.title
-  }
 
-  // Then check for first heading
-  if (file.firstHeading != null && file.firstHeading.trim() !== '') {
-    return file.firstHeading
-  }
-
-  // Fall back to filename without extension
-  return file.name.replace(/\.[^/.]+$/, '')
-}
 
 export const zettlrSearchTitleSchema: ToolSchema = {
   name: 'zettlr_search_title',
@@ -182,8 +157,8 @@ export const zettlrSearchTitleHandler: ToolHandler = async (args, context) => {
   try {
     const query = args.query as string
     const maxResults = (args.maxResults as number) || 50
-    const includeYamlTitle = args.includeYamlTitle !== false // Default to true
-    const includeH1Heading = args.includeH1Heading !== false // Default to true
+    const includeYamlTitle = args.includeYamlTitle !== false
+    const includeH1Heading = args.includeH1Heading !== false
 
     if (typeof query !== 'string' || query.trim() === '') {
       return {
@@ -197,15 +172,10 @@ export const zettlrSearchTitleHandler: ToolHandler = async (args, context) => {
 
     context.logger.verbose(`[MCP] Searching files by title for: "${query}"`)
 
-    // Get matching files
     const matchingFiles = searchExact(query, includeYamlTitle, includeH1Heading, context.workspaces)
-
-    // Limit results
     const limitedFiles = matchingFiles.slice(0, maxResults)
-
-    // Transform to the expected output format
     const files = limitedFiles.map((file: MDFileDescriptor) => {
-      const fileTitle = getDisplayTitle(file)
+              const fileTitle = getFileDisplayTitle(file)
       const fileId = getFileId(file.path, context)
 
       return {
@@ -227,12 +197,10 @@ export const zettlrSearchTitleHandler: ToolHandler = async (args, context) => {
     }
 
     return {
-      // Backwards compatibility: unstructured content
       content: [{
         type: 'text',
         text: JSON.stringify(result, null, 2)
       }],
-      // MCP 2025-06-18: Structured content for better client integration
       structuredContent: result,
       isError: false
     }

@@ -60,12 +60,10 @@ export const zettlrReadFileHandler: ToolHandler = async (args, context) => {
   }
 
   try {
-    // Find the file in our workspace
     const allFiles = context.workspaces.getAllFiles()
     const fileDescriptor = allFiles.find(file => file.path === filePath)
 
     if (fileDescriptor === undefined) {
-      // File not found, try to check if it exists on disk but isn't in our workspace
       return {
         content: [{
           type: 'text',
@@ -75,7 +73,6 @@ export const zettlrReadFileHandler: ToolHandler = async (args, context) => {
       }
     }
 
-    // Only allow reading text files
     if (fileDescriptor.type !== 'file' && fileDescriptor.type !== 'code') {
       return {
         content: [{
@@ -86,7 +83,6 @@ export const zettlrReadFileHandler: ToolHandler = async (args, context) => {
       }
     }
 
-    // Read the file content
     const fileContent = await readFile(filePath, 'utf8')
 
     const result = {
@@ -99,12 +95,10 @@ export const zettlrReadFileHandler: ToolHandler = async (args, context) => {
     }
 
     return {
-      // Backwards compatibility: unstructured content
       content: [{
         type: 'text',
         text: JSON.stringify(result, null, 2)
       }],
-      // MCP 2025-06-18: Structured content for better client integration
       structuredContent: result,
       isError: false
     }

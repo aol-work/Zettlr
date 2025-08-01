@@ -23,28 +23,7 @@ export interface ToolContentText {
   text: string
 }
 
-export interface ToolContentImage {
-  type: 'image'
-  data: string
-  mimeType: string
-}
-
-export interface ToolContentAudio {
-  type: 'audio'
-  data: string
-  mimeType: string
-}
-
-export interface ToolContentResource {
-  type: 'resource'
-  resource: {
-    uri: string
-    mimeType?: string
-    text?: string
-  }
-}
-
-export type ToolContent = ToolContentText | ToolContentImage | ToolContentAudio | ToolContentResource
+export type ToolContent = ToolContentText
 
 export interface ToolResult {
   content: ToolContent[]

@@ -93,7 +93,6 @@ export const zettlrListTagsHandler: ToolHandler = async (args, context) => {
   const sortBy = (args.sortBy as string) || 'count'
 
   try {
-    // Get the tag database from workspaces
     const tagDatabase = context.workspaces.getTags()
 
     if (tagDatabase.size === 0) {
@@ -110,7 +109,6 @@ export const zettlrListTagsHandler: ToolHandler = async (args, context) => {
       }
     }
 
-    // Convert Map to array and count occurrences
     const tagCounts = new Map<string, number>()
     const tagFiles = new Map<string, Set<string>>()
 
@@ -126,11 +124,9 @@ export const zettlrListTagsHandler: ToolHandler = async (args, context) => {
       }
     }
 
-    // Convert to array format
     const tagArray = Array.from(tagCounts.entries()).map(([ tag, count ]) => {
       const files = Array.from(tagFiles.get(tag) ?? [])
       
-      // Get file objects with additional information
       const allFiles = context.workspaces.getAllFiles()
       const fileObjects = files.map(filePath => {
         const file = allFiles.find(f => f.path === filePath)
@@ -148,21 +144,16 @@ export const zettlrListTagsHandler: ToolHandler = async (args, context) => {
         name: tag,
         count: count,
         files: fileObjects,
-        // TODO: Add color and description when we have access to colored tag info
         color: undefined,
         description: undefined
       }
     })
 
-    // Sort the results
     if (sortBy === 'name' || sortBy === 'alphabetical') {
       tagArray.sort((a, b) => a.name.localeCompare(b.name))
     } else {
-      // Default: sort by count (descending)
       tagArray.sort((a, b) => b.count - a.count)
     }
-
-    // Limit results
     const limitedTags = tagArray.slice(0, maxResults)
 
     const result = {
@@ -171,12 +162,10 @@ export const zettlrListTagsHandler: ToolHandler = async (args, context) => {
     }
 
     return {
-      // Backwards compatibility: unstructured content
       content: [{
         type: 'text',
         text: JSON.stringify(result, null, 2)
       }],
-      // MCP 2025-06-18: Structured content for better client integration
       structuredContent: result,
       isError: false
     }

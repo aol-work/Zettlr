@@ -1,28 +1,8 @@
 import type { ToolSchema, ToolHandler } from './types'
-import { getFileId } from './common'
+import { getFileId, getFileDisplayTitle } from './common'
 import type { AnyDescriptor, MDFileDescriptor } from '@dts/common/fsal'
 
-/**
- * Gets the display title for a file, preferring YAML title, then H1 heading, then filename
- *
- * @param   {MDFileDescriptor}  file  The file descriptor
- *
- * @return  {string}                  The display title
- */
-function getFileDisplayTitle (file: MDFileDescriptor): string {
-  // Check for YAML frontmatter title first
-  if (file.frontmatter != null && 'title' in file.frontmatter && typeof file.frontmatter.title === 'string') {
-    return file.frontmatter.title
-  }
 
-  // Then check for first heading
-  if (file.firstHeading != null && file.firstHeading.trim() !== '') {
-    return file.firstHeading
-  }
-
-  // Fall back to filename without extension
-  return file.name.replace(/\.[^/.]+$/, '')
-}
 
 export const zettlrSearchTagSchema: ToolSchema = {
   name: 'zettlr_search_tag',
@@ -130,7 +110,6 @@ export const zettlrSearchTagHandler: ToolHandler = async (args, context) => {
   context.logger.verbose(`[MCP] Searching for tag: "${searchTag}"`)
 
   try {
-    // Get all files from all workspaces
     const allFiles = context.workspaces.getAllFiles()
       .filter((file: AnyDescriptor): file is MDFileDescriptor => file.type === 'file')
 
@@ -139,15 +118,11 @@ export const zettlrSearchTagHandler: ToolHandler = async (args, context) => {
     for (const file of allFiles) {
       let relevance = 0
 
-      // Check inline tags
       const inlineTags = file.tags.filter((t: string) => t.toLowerCase().includes(searchTag))
-      relevance += inlineTags.length * 2 // Higher weight for exact tag matches
-
-      // Check YAML frontmatter tags
+      relevance += inlineTags.length * 2
       if (file.frontmatter != null) {
         const yamlTags: string[] = []
         
-        // Check both 'tags' and 'keywords' fields
         if (Array.isArray(file.frontmatter.tags)) {
           yamlTags.push(...file.frontmatter.tags.map((t: any) => String(t).toLowerCase()))
         }
@@ -165,7 +140,6 @@ export const zettlrSearchTagHandler: ToolHandler = async (args, context) => {
       }
     }
 
-    // Sort the results
     if (sortBy === 'name') {
       matchingFiles.sort((a, b) => a.file.name.localeCompare(b.file.name))
     } else if (sortBy === 'modified') {
@@ -173,19 +147,14 @@ export const zettlrSearchTagHandler: ToolHandler = async (args, context) => {
     } else if (sortBy === 'created') {
       matchingFiles.sort((a, b) => b.file.creationtime - a.file.creationtime)
     } else {
-      // Default: sort by relevance
       matchingFiles.sort((a, b) => b.relevance - a.relevance)
     }
 
-    // Limit results
     const limitedResults = matchingFiles.slice(0, maxResults)
-
-    // Transform to expected output format
     const files = limitedResults.map(({ file }) => {
       const fileTitle = getFileDisplayTitle(file)
       const fileId = getFileId(file.path, context)
 
-      // Extract the tags that actually match
       const fileTags = [...file.tags]
       if (file.frontmatter != null) {
         if (Array.isArray(file.frontmatter.tags)) {
@@ -215,12 +184,10 @@ export const zettlrSearchTagHandler: ToolHandler = async (args, context) => {
     }
 
     return {
-      // Backwards compatibility: unstructured content
       content: [{
         type: 'text',
         text: JSON.stringify(result, null, 2)
       }],
-      // MCP 2025-06-18: Structured content for better client integration
       structuredContent: result,
       isError: false
     }

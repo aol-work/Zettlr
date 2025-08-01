@@ -22,10 +22,7 @@ export default class MCPProvider {
     this.expressApp = express()
     this.httpServer = undefined
 
-    /** ─────────────── middleware ─────────────── **/
     this.expressApp.use(express.json())
-
-    // Streamable HTTP endpoint for new transport
     this.expressApp.get('/message', async (req, res) => {
       this._logger.verbose('[MCP] GET /message - initiating SSE stream')
 
@@ -37,7 +34,6 @@ export default class MCPProvider {
         'Access-Control-Allow-Headers': 'Content-Type, Cache-Control'
       })
 
-      // Send initial ready event
       res.write('event: message\n')
       res.write(`data: ${JSON.stringify({
         jsonrpc: '2.0',
@@ -45,7 +41,6 @@ export default class MCPProvider {
         params: {}
       })}\n\n`)
 
-      // Keep the connection alive
       const keepAlive = setInterval(() => {
         res.write(': keepalive\n\n')
       }, 30000)
@@ -90,14 +85,12 @@ export default class MCPProvider {
         } else if (message.method === 'tools/call') {
           const { name, arguments: args } = message.params
 
-          // Create tool context
           const context: ToolContext = {
             logger: this._logger,
             workspaces: this._workspaces,
             fsal: this._fsal
           }
 
-          // Find and execute the appropriate tool handler
           const handler = toolHandlers[name as keyof typeof toolHandlers]
           if (handler !== undefined) {
             try {
@@ -154,7 +147,6 @@ export default class MCPProvider {
       }
     })
 
-    // Handle CORS preflight requests
     this.expressApp.options('/message', (req, res) => {
       res.header('Access-Control-Allow-Origin', '*')
       res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
@@ -163,7 +155,6 @@ export default class MCPProvider {
     })
   }
 
-  /** ─────────────── boot / shutdown ─────────────── **/
   async boot (): Promise<void> {
     this._logger.verbose('MCP provider booting up …')
 
