@@ -49,6 +49,65 @@ export const zettlrSearchTagSchema: ToolSchema = {
       }
     },
     required: ['tag']
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      tag: {
+        type: 'string',
+        description: 'The tag that was searched for'
+      },
+      totalResults: {
+        type: 'number',
+        description: 'Total number of files containing the tag'
+      },
+      files: {
+        type: 'array',
+        description: 'Array of files containing the tag',
+        items: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'File title (from YAML frontmatter, H1 heading, or filename)'
+            },
+            path: {
+              type: 'string',
+              description: 'Full file path'
+            },
+            name: {
+              type: 'string',
+              description: 'File name with extension'
+            },
+            id: {
+              type: 'string',
+              description: 'File identifier (if available)'
+            },
+            modifiedDate: {
+              type: 'string',
+              description: 'File modification date in ISO format'
+            },
+            createdDate: {
+              type: 'string',
+              description: 'File creation date in ISO format'
+            },
+            size: {
+              type: 'number',
+              description: 'File size in bytes'
+            },
+            tags: {
+              type: 'array',
+              description: 'All tags associated with this file',
+              items: {
+                type: 'string'
+              }
+            }
+          },
+          required: ['title', 'path', 'name', 'modifiedDate', 'createdDate', 'size', 'tags']
+        }
+      }
+    },
+    required: ['tag', 'totalResults', 'files']
   }
 }
 
@@ -149,15 +208,20 @@ export const zettlrSearchTagHandler: ToolHandler = async (args, context) => {
       }
     })
 
+    const result = {
+      tag: searchTag,
+      totalResults: matchingFiles.length,
+      files
+    }
+
     return {
+      // Backwards compatibility: unstructured content
       content: [{
         type: 'text',
-        text: JSON.stringify({
-          tag: searchTag,
-          totalResults: matchingFiles.length,
-          files
-        })
+        text: JSON.stringify(result, null, 2)
       }],
+      // MCP 2025-06-18: Structured content for better client integration
+      structuredContent: result,
       isError: false
     }
   } catch (error) {

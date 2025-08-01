@@ -52,6 +52,92 @@ export const zettlrSearchKeywordSchema: ToolSchema = {
       }
     },
     required: ['query']
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description: 'The search query that was used'
+      },
+      totalFiles: {
+        type: 'number',
+        description: 'Total number of files with matches'
+      },
+      totalMatches: {
+        type: 'number',
+        description: 'Total number of matching text snippets across all files'
+      },
+      files: {
+        type: 'array',
+        description: 'Array of files containing matches',
+        items: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'File title or display name'
+            },
+            path: {
+              type: 'string',
+              description: 'Full file path'
+            },
+            name: {
+              type: 'string',
+              description: 'File name with extension'
+            },
+            id: {
+              type: 'string',
+              description: 'File identifier (if available)'
+            },
+            type: {
+              type: 'string',
+              description: 'File type'
+            },
+            relevance: {
+              type: 'number',
+              description: 'Relevance score for this file'
+            },
+            matchCount: {
+              type: 'number',
+              description: 'Number of matching snippets in this file'
+            },
+            snippets: {
+              type: 'array',
+              description: 'Array of matching text snippets',
+              items: {
+                type: 'object',
+                properties: {
+                  line: {
+                    type: 'number',
+                    description: 'Line number where match was found'
+                  },
+                  text: {
+                    type: 'string',
+                    description: 'Text snippet containing the match'
+                  },
+                  relevance: {
+                    type: 'number',
+                    description: 'Relevance score for this snippet'
+                  },
+                  ranges: {
+                    type: 'array',
+                    description: 'Character ranges of matches within the snippet'
+                  }
+                },
+                required: ['line', 'text', 'relevance', 'ranges']
+              }
+            },
+            hasMoreMatches: {
+              type: 'boolean',
+              description: 'Whether there are more matches than shown in snippets'
+            }
+          },
+          required: ['title', 'path', 'name', 'type', 'relevance', 'matchCount', 'snippets', 'hasMoreMatches']
+        }
+      }
+    },
+    required: ['query', 'totalFiles', 'totalMatches', 'files']
   }
 }
 
@@ -135,10 +221,13 @@ export const zettlrSearchKeywordHandler: ToolHandler = async (args, context) => 
     }
 
     return {
+      // Backwards compatibility: unstructured content
       content: [{
         type: 'text',
         text: JSON.stringify(result, null, 2)
       }],
+      // MCP 2025-06-18: Structured content for better client integration
+      structuredContent: result,
       isError: false
     }
   } catch (error) {

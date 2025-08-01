@@ -116,6 +116,65 @@ export const zettlrSearchTitleSchema: ToolSchema = {
       }
     },
     required: ['query']
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description: 'The search query that was used'
+      },
+      totalResults: {
+        type: 'number',
+        description: 'Total number of matching files found'
+      },
+      files: {
+        type: 'array',
+        description: 'Array of matching files',
+        items: {
+          type: 'object',
+          properties: {
+            title: {
+              type: 'string',
+              description: 'File title (from YAML frontmatter, H1 heading, or filename)'
+            },
+            path: {
+              type: 'string',
+              description: 'Full file path'
+            },
+            name: {
+              type: 'string',
+              description: 'File name with extension'
+            },
+            id: {
+              type: 'string',
+              description: 'File identifier (if available)'
+            },
+            modifiedDate: {
+              type: 'string',
+              description: 'File modification date in ISO format'
+            },
+            createdDate: {
+              type: 'string',
+              description: 'File creation date in ISO format'
+            },
+            size: {
+              type: 'number',
+              description: 'File size in bytes'
+            },
+            tags: {
+              type: 'array',
+              description: 'File tags',
+              items: {
+                type: 'string'
+              }
+            }
+          },
+          required: ['title', 'path', 'name', 'modifiedDate', 'createdDate', 'size', 'tags']
+        }
+      }
+    },
+    required: ['query', 'totalResults', 'files']
   }
 }
 
@@ -168,10 +227,13 @@ export const zettlrSearchTitleHandler: ToolHandler = async (args, context) => {
     }
 
     return {
+      // Backwards compatibility: unstructured content
       content: [{
         type: 'text',
         text: JSON.stringify(result, null, 2)
       }],
+      // MCP 2025-06-18: Structured content for better client integration
+      structuredContent: result,
       isError: false
     }
   } catch (error) {

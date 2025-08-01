@@ -13,6 +13,36 @@ export const zettlrReadFileSchema: ToolSchema = {
       }
     },
     required: ['path']
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      path: {
+        type: 'string',
+        description: 'Full file path'
+      },
+      name: {
+        type: 'string',
+        description: 'File name with extension'
+      },
+      content: {
+        type: 'string',
+        description: 'Complete file content as text'
+      },
+      size: {
+        type: 'number',
+        description: 'File size in bytes'
+      },
+      type: {
+        type: 'string',
+        description: 'File type'
+      },
+      encoding: {
+        type: 'string',
+        description: 'File encoding used for reading'
+      }
+    },
+    required: ['path', 'name', 'content', 'size', 'type', 'encoding']
   }
 }
 
@@ -69,10 +99,13 @@ export const zettlrReadFileHandler: ToolHandler = async (args, context) => {
     }
 
     return {
+      // Backwards compatibility: unstructured content
       content: [{
         type: 'text',
         text: JSON.stringify(result, null, 2)
       }],
+      // MCP 2025-06-18: Structured content for better client integration
+      structuredContent: result,
       isError: false
     }
   } catch (error) {

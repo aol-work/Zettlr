@@ -27,6 +27,64 @@ export const zettlrListTagsSchema: ToolSchema = {
       }
     },
     required: []
+  },
+  outputSchema: {
+    type: 'object',
+    properties: {
+      totalTags: {
+        type: 'number',
+        description: 'Total number of unique tags in the workspace'
+      },
+      tags: {
+        type: 'array',
+        description: 'Array of tag information',
+        items: {
+          type: 'object',
+          properties: {
+            name: {
+              type: 'string',
+              description: 'Tag name'
+            },
+            count: {
+              type: 'number',
+              description: 'Number of files containing this tag'
+            },
+            files: {
+              type: 'array',
+              description: 'Array of files containing this tag',
+              items: {
+                type: 'object',
+                properties: {
+                  path: {
+                    type: 'string',
+                    description: 'Full file path'
+                  },
+                  name: {
+                    type: 'string',
+                    description: 'File name with extension'
+                  },
+                  id: {
+                    type: 'string',
+                    description: 'File identifier (if available)'
+                  }
+                },
+                required: ['path', 'name']
+              }
+            },
+            color: {
+              type: 'string',
+              description: 'Tag color (if available)'
+            },
+            description: {
+              type: 'string',
+              description: 'Tag description (if available)'
+            }
+          },
+          required: ['name', 'count', 'files']
+        }
+      }
+    },
+    required: ['totalTags', 'tags']
   }
 }
 
@@ -113,10 +171,13 @@ export const zettlrListTagsHandler: ToolHandler = async (args, context) => {
     }
 
     return {
+      // Backwards compatibility: unstructured content
       content: [{
         type: 'text',
         text: JSON.stringify(result, null, 2)
       }],
+      // MCP 2025-06-18: Structured content for better client integration
+      structuredContent: result,
       isError: false
     }
   } catch (error) {
