@@ -1,5 +1,6 @@
 import type { ToolSchema, ToolHandler } from './types'
 import { getFileId } from './common'
+import type { MDFileDescriptor } from '@dts/common/fsal'
 
 export const zettlrListTagsSchema: ToolSchema = {
   name: 'zettlr_list_tags',
@@ -26,7 +27,7 @@ export const zettlrListTagsSchema: ToolSchema = {
         maximum: 1000
       }
     },
-    required: []
+    required: [ ]
   },
   outputSchema: {
     type: 'object',
@@ -68,7 +69,7 @@ export const zettlrListTagsSchema: ToolSchema = {
                     description: 'File identifier (if available)'
                   }
                 },
-                required: ['path', 'name']
+                required: [ 'path', 'name' ]
               }
             },
             color: {
@@ -80,31 +81,34 @@ export const zettlrListTagsSchema: ToolSchema = {
               description: 'Tag description (if available)'
             }
           },
-          required: ['name', 'count', 'files']
+          required: [ 'name', 'count', 'files' ]
         }
       }
     },
-    required: ['totalTags', 'tags']
+    required: [ 'totalTags', 'tags' ]
   }
 }
 
 export const zettlrListTagsHandler: ToolHandler = async (args, context) => {
-  const maxResults = typeof args.maxResults === 'number' ? Math.min(Math.max(args.maxResults, 1), 1000) : 100
+  const maxResultsArg: unknown = args.maxResults
+  const maxResults = typeof maxResultsArg === 'number'
+    ? Math.min(Math.max(maxResultsArg, 1), 1000)
+    : 100
   const sortBy = (args.sortBy as string) || 'count'
 
   try {
-    const tagDatabase = context.workspaces.getTags()
+    const allFiles = (await context.fsal.getAllLoadedDescriptors())
+      .filter((d): d is MDFileDescriptor => d.type === 'file')
+    const fileByPath = new Map<string, MDFileDescriptor>()
+    for (const f of allFiles) {
+      fileByPath.set(f.path, f)
+    }
 
-    if (tagDatabase.size === 0) {
-      const result = {
-        totalTags: 0,
-        tags: []
-      }
+    if (allFiles.length === 0) {
+      const result = { totalTags: 0, tags: [ ] }
       return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify(result, null, 2)
-        }],
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        structuredContent: result,
         isError: false
       }
     }
@@ -112,26 +116,47 @@ export const zettlrListTagsHandler: ToolHandler = async (args, context) => {
     const tagCounts = new Map<string, number>()
     const tagFiles = new Map<string, Set<string>>()
 
-    for (const [ filePath, tags ] of tagDatabase) {
-      for (const tag of tags) {
-        const normalizedTag = tag.toLowerCase()
+    for (const file of allFiles) {
+      const fileTags: string[] = []
+      // Inline tags extracted by Zettlr parser
+      fileTags.push(...file.tags)
+      // YAML frontmatter tags/keywords (if available)
+      if (file.frontmatter != null) {
+        if (Array.isArray(file.frontmatter.tags)) {
+          for (const t of file.frontmatter.tags as unknown[]) {
+            fileTags.push(String(t))
+          }
+        }
+        if (Array.isArray(file.frontmatter.keywords)) {
+          for (const k of file.frontmatter.keywords as unknown[]) {
+            fileTags.push(String(k))
+          }
+        }
+      }
+
+      const uniqueNormalized = new Set(
+        fileTags
+          .map(t => String(t).trim())
+          .filter(t => t !== '')
+          .map(t => t.toLowerCase())
+      )
+
+      for (const normalizedTag of uniqueNormalized) {
         tagCounts.set(normalizedTag, (tagCounts.get(normalizedTag) ?? 0) + 1)
-        
         if (!tagFiles.has(normalizedTag)) {
           tagFiles.set(normalizedTag, new Set())
         }
-        tagFiles.get(normalizedTag)?.add(filePath)
+        tagFiles.get(normalizedTag)?.add(file.path)
       }
     }
 
     const tagArray = Array.from(tagCounts.entries()).map(([ tag, count ]) => {
       const files = Array.from(tagFiles.get(tag) ?? [])
       
-      const allFiles = context.workspaces.getAllFiles()
       const fileObjects = files.map(filePath => {
-        const file = allFiles.find(f => f.path === filePath)
+        const file = fileByPath.get(filePath)
         const fileName = file?.name ?? filePath.split('/').pop() ?? ''
-        const fileId = getFileId(filePath, context)
+        const fileId = getFileId(file)
 
         return {
           path: filePath,

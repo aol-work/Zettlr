@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { app } from 'electron'
 import express from 'express'
 import type LogProvider from '../log'
-import type WorkspaceProvider from '../workspaces'
+import type ConfigProvider from '../config'
 import type FSAL from '../fsal'
 import { allToolSchemas, toolHandlers, type ToolContext } from './tools'
 
@@ -11,12 +11,12 @@ export default class MCPProvider {
   private expressApp: express.Application
   private httpServer: ReturnType<express.Application['listen']> | undefined
   private readonly _logger: LogProvider
-  private readonly _workspaces: WorkspaceProvider
+  private readonly _config: ConfigProvider
   private readonly _fsal: FSAL
 
-  constructor (logger: LogProvider, workspaces: WorkspaceProvider, fsal: FSAL) {
+  constructor (logger: LogProvider, config: ConfigProvider, fsal: FSAL) {
     this._logger = logger
-    this._workspaces = workspaces
+    this._config = config
     this._fsal = fsal
     this.server = undefined
     this.expressApp = express()
@@ -87,7 +87,6 @@ export default class MCPProvider {
 
           const context: ToolContext = {
             logger: this._logger,
-            workspaces: this._workspaces,
             fsal: this._fsal
           }
 

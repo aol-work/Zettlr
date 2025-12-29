@@ -83,17 +83,20 @@ export const zettlrSearchTagSchema: ToolSchema = {
               }
             }
           },
-          required: ['title', 'path', 'name', 'modifiedDate', 'createdDate', 'size', 'tags']
+          required: [ 'title', 'path', 'name', 'modifiedDate', 'createdDate', 'size', 'tags' ]
         }
       }
     },
-    required: ['tag', 'totalResults', 'files']
+    required: [ 'tag', 'totalResults', 'files' ]
   }
 }
 
 export const zettlrSearchTagHandler: ToolHandler = async (args, context) => {
   const tag = args.tag as string
-  const maxResults = typeof args.maxResults === 'number' ? Math.min(Math.max(args.maxResults, 1), 1000) : 50
+  const maxResultsArg: unknown = args.maxResults
+  const maxResults = typeof maxResultsArg === 'number'
+    ? Math.min(Math.max(maxResultsArg, 1), 1000)
+    : 50
   const sortBy = (args.sortBy as string) || 'relevance'
 
   if (typeof tag !== 'string' || tag.trim() === '') {
@@ -110,7 +113,7 @@ export const zettlrSearchTagHandler: ToolHandler = async (args, context) => {
   context.logger.verbose(`[MCP] Searching for tag: "${searchTag}"`)
 
   try {
-    const allFiles = context.workspaces.getAllFiles()
+    const allFiles = (await context.fsal.getAllLoadedDescriptors())
       .filter((file: AnyDescriptor): file is MDFileDescriptor => file.type === 'file')
 
     const matchingFiles: Array<{ file: MDFileDescriptor, relevance: number }> = []
@@ -124,11 +127,15 @@ export const zettlrSearchTagHandler: ToolHandler = async (args, context) => {
         const yamlTags: string[] = []
         
         if (Array.isArray(file.frontmatter.tags)) {
-          yamlTags.push(...file.frontmatter.tags.map((t: any) => String(t).toLowerCase()))
+          for (const t of file.frontmatter.tags as unknown[]) {
+            yamlTags.push(String(t).toLowerCase())
+          }
         }
         
         if (Array.isArray(file.frontmatter.keywords)) {
-          yamlTags.push(...file.frontmatter.keywords.map((k: any) => String(k).toLowerCase()))
+          for (const k of file.frontmatter.keywords as unknown[]) {
+            yamlTags.push(String(k).toLowerCase())
+          }
         }
 
         const yamlMatches = yamlTags.filter((t: string) => t.includes(searchTag))
@@ -153,15 +160,19 @@ export const zettlrSearchTagHandler: ToolHandler = async (args, context) => {
     const limitedResults = matchingFiles.slice(0, maxResults)
     const files = limitedResults.map(({ file }) => {
       const fileTitle = getFileDisplayTitle(file)
-      const fileId = getFileId(file.path, context)
+      const fileId = getFileId(file)
 
       const fileTags = [...file.tags]
       if (file.frontmatter != null) {
         if (Array.isArray(file.frontmatter.tags)) {
-          fileTags.push(...file.frontmatter.tags.map((t: any) => String(t)))
+          for (const t of file.frontmatter.tags as unknown[]) {
+            fileTags.push(String(t))
+          }
         }
         if (Array.isArray(file.frontmatter.keywords)) {
-          fileTags.push(...file.frontmatter.keywords.map((k: any) => String(k)))
+          for (const k of file.frontmatter.keywords as unknown[]) {
+            fileTags.push(String(k))
+          }
         }
       }
 
@@ -200,7 +211,7 @@ export const zettlrSearchTagHandler: ToolHandler = async (args, context) => {
           error: error instanceof Error ? error.message : 'Unknown error',
           tag: tag || '',
           totalResults: 0,
-          files: []
+          files: [ ]
         })
       }],
       isError: true

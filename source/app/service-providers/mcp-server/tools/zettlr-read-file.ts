@@ -42,7 +42,7 @@ export const zettlrReadFileSchema: ToolSchema = {
         description: 'File encoding used for reading'
       }
     },
-    required: ['path', 'name', 'content', 'size', 'type', 'encoding']
+    required: [ 'path', 'name', 'content', 'size', 'type', 'encoding' ]
   }
 }
 
@@ -60,7 +60,7 @@ export const zettlrReadFileHandler: ToolHandler = async (args, context) => {
   }
 
   try {
-    const allFiles = context.workspaces.getAllFiles()
+    const allFiles = await context.fsal.getAllLoadedDescriptors()
     const fileDescriptor = allFiles.find(file => file.path === filePath)
 
     if (fileDescriptor === undefined) {

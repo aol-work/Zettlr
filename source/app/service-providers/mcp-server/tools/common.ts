@@ -1,17 +1,13 @@
-import type { ToolContext } from './types'
 import type { MDFileDescriptor } from '@dts/common/fsal'
 
 /**
- * Gets the Zettlr internal ID for a file path if available
- *
- * @param   {string}      filePath  The file path
- * @param   {ToolContext} context   The tool context
- *
- * @return  {string}                The ID if found, empty string otherwise
+ * Gets the Zettlr internal ID for a descriptor if available.
  */
-export function getFileId (filePath: string, context: ToolContext): string {
-  const idMap = context.workspaces.getIds()
-  return idMap.get(filePath) ?? ''
+export function getFileId (descriptor: { id?: string } | undefined): string {
+  if (descriptor?.id === undefined) {
+    return ''
+  }
+  return typeof descriptor.id === 'string' ? descriptor.id : String(descriptor.id)
 }
 
 /**

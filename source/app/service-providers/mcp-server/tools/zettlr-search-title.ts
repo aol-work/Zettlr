@@ -14,10 +14,8 @@ import type { MDFileDescriptor } from '@dts/common/fsal'
  *
  * @return  {MDFileDescriptor[]}      The search results
  */
-function searchExact (searchTerms: string, includeTitle: boolean, includeH1: boolean, workspaces: any): MDFileDescriptor[] {
+function searchExact (searchTerms: string, includeTitle: boolean, includeH1: boolean, allFiles: MDFileDescriptor[]): MDFileDescriptor[] {
   const queries = searchTerms.toLowerCase().split(' ').filter(q => q.trim() !== '')
-  const allFiles = workspaces.getAllFiles().filter((file: any) => file.type === 'file') as MDFileDescriptor[]
-
   return allFiles.filter((file: MDFileDescriptor) => isFileMatching(file, queries, includeTitle, includeH1))
 
   function isFileMatching (fileDescriptor: MDFileDescriptor, queries: string[], includeTitle: boolean, includeH1: boolean): boolean {
@@ -145,11 +143,11 @@ export const zettlrSearchTitleSchema: ToolSchema = {
               }
             }
           },
-          required: ['title', 'path', 'name', 'modifiedDate', 'createdDate', 'size', 'tags']
+          required: [ 'title', 'path', 'name', 'modifiedDate', 'createdDate', 'size', 'tags' ]
         }
       }
     },
-    required: ['query', 'totalResults', 'files']
+    required: [ 'query', 'totalResults', 'files' ]
   }
 }
 
@@ -172,11 +170,14 @@ export const zettlrSearchTitleHandler: ToolHandler = async (args, context) => {
 
     context.logger.verbose(`[MCP] Searching files by title for: "${query}"`)
 
-    const matchingFiles = searchExact(query, includeYamlTitle, includeH1Heading, context.workspaces)
+    const allFiles = (await context.fsal.getAllLoadedDescriptors())
+      .filter((d): d is MDFileDescriptor => d.type === 'file')
+
+    const matchingFiles = searchExact(query, includeYamlTitle, includeH1Heading, allFiles)
     const limitedFiles = matchingFiles.slice(0, maxResults)
     const files = limitedFiles.map((file: MDFileDescriptor) => {
-              const fileTitle = getFileDisplayTitle(file)
-      const fileId = getFileId(file.path, context)
+      const fileTitle = getFileDisplayTitle(file)
+      const fileId = getFileId(file)
 
       return {
         title: fileTitle,

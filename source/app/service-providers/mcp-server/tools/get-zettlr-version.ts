@@ -38,13 +38,13 @@ export const getZettlrVersionSchema: ToolSchema = {
         description: 'Patch version number'
       }
     },
-    required: ['version', 'app', 'major', 'minor', 'patch']
+    required: [ 'version', 'app', 'major', 'minor', 'patch' ]
   }
 }
 
 export const getZettlrVersionHandler: ToolHandler = async (_args, _context) => {
   const version = app.getVersion()
-  const [major, minor, patch] = version.split('.').map(Number)
+  const [ major, minor, patch ] = version.split('.').map(Number)
   
   const versionData = {
     version,

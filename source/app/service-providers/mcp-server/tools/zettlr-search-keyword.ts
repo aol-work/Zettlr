@@ -105,7 +105,7 @@ export const zettlrSearchKeywordSchema: ToolSchema = {
                     description: 'Character ranges of matches within the snippet'
                   }
                 },
-                required: ['line', 'text', 'relevance', 'ranges']
+                required: [ 'line', 'text', 'relevance', 'ranges' ]
               }
             },
             hasMoreMatches: {
@@ -113,18 +113,24 @@ export const zettlrSearchKeywordSchema: ToolSchema = {
               description: 'Whether there are more matches than shown in snippets'
             }
           },
-          required: ['title', 'path', 'name', 'type', 'relevance', 'matchCount', 'snippets', 'hasMoreMatches']
+          required: [ 'title', 'path', 'name', 'type', 'relevance', 'matchCount', 'snippets', 'hasMoreMatches' ]
         }
       }
     },
-    required: ['query', 'totalFiles', 'totalMatches', 'files']
+    required: [ 'query', 'totalFiles', 'totalMatches', 'files' ]
   }
 }
 
 export const zettlrSearchKeywordHandler: ToolHandler = async (args, context) => {
   const query = args.query as string
-  const maxResults = typeof args.maxResults === 'number' ? Math.min(Math.max(args.maxResults, 1), 1000) : 50
-  const maxSnippetsPerFile = typeof args.maxSnippetsPerFile === 'number' ? Math.min(Math.max(args.maxSnippetsPerFile, 1), 50) : 10
+  const maxResultsArg: unknown = args.maxResults
+  const maxResults = typeof maxResultsArg === 'number'
+    ? Math.min(Math.max(maxResultsArg, 1), 1000)
+    : 50
+  const maxSnippetsPerFileArg: unknown = args.maxSnippetsPerFile
+  const maxSnippetsPerFile = typeof maxSnippetsPerFileArg === 'number'
+    ? Math.min(Math.max(maxSnippetsPerFileArg, 1), 50)
+    : 10
 
   if (typeof query !== 'string' || query.trim() === '') {
     return {
@@ -139,11 +145,11 @@ export const zettlrSearchKeywordHandler: ToolHandler = async (args, context) => 
   try {
     const searchTerms: SearchTerm[] = compileSearchTerms(query.trim())
 
-    const allFiles = context.workspaces.getAllFiles()
+    const allFiles = (await context.fsal.getAllLoadedDescriptors())
       .filter((file: AnyDescriptor): file is MDFileDescriptor | CodeFileDescriptor => 
         file.type === 'file' || file.type === 'code')
 
-    const searchResults: Array<{ file: MDFileDescriptor | CodeFileDescriptor, results: SearchResult[ ], weight: number }> = [ ]
+    const searchResults: Array<{ file: MDFileDescriptor | CodeFileDescriptor, results: SearchResult[], weight: number }> = []
 
     for (const file of allFiles) {
       try {
@@ -162,7 +168,7 @@ export const zettlrSearchKeywordHandler: ToolHandler = async (args, context) => 
     const totalMatches = limitedResults.reduce((total, result) => total + result.results.length, 0)
     const files = limitedResults.map(({ file, results, weight }) => {
       const fileTitle = file.type === 'file' ? getFileDisplayTitle(file) : file.name
-      const fileId = getFileId(file.path, context)
+      const fileId = getFileId(file.type === 'file' ? file : undefined)
 
       const snippets = results.slice(0, maxSnippetsPerFile).map(result => ({
         line: result.line,

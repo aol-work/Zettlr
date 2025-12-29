@@ -1,5 +1,4 @@
 import type LogProvider from '../../log'
-import type WorkspaceProvider from '../../workspaces'
 import type FSAL from '../../fsal'
 
 export interface ToolSchema {
@@ -33,7 +32,6 @@ export interface ToolResult {
 
 export interface ToolContext {
   logger: LogProvider
-  workspaces: WorkspaceProvider
   fsal: FSAL
 }
 
