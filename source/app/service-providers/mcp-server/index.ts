@@ -157,10 +157,14 @@ export default class MCPProvider {
   async boot (): Promise<void> {
     this._logger.verbose('MCP provider booting up …')
 
+    // SECURITY: Never bind the MCP server to anything but the local loopback
+    // interface. Express will otherwise bind to all interfaces (0.0.0.0),
+    // which would expose the MCP endpoints to the LAN.
+    const HOST = '127.0.0.1'
     const PORT = 3001
-    this.httpServer = this.expressApp.listen(PORT, () =>
-      this._logger.verbose(`MCP Streamable HTTP Server listening on port ${PORT}`)
-    )
+    this.httpServer = this.expressApp.listen(PORT, HOST, () => {
+      this._logger.verbose(`MCP Streamable HTTP Server listening on http://${HOST}:${PORT}`)
+    })
   }
 
   async shutdown (): Promise<void> {
