@@ -1,15 +1,36 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { app } from 'electron'
 import express from 'express'
+import path from 'path'
+import { promises as fs } from 'fs'
 import type LogProvider from '../log'
 import type ConfigProvider from '../config'
 import type FSAL from '../fsal'
 import { allToolSchemas, toolHandlers, type ToolContext } from './tools'
 
+function readToggleEnv (envVarName: string, defaultValue: boolean): { enabled: boolean, raw: string | undefined, valid: boolean } {
+  const raw = process.env[envVarName]
+  if (raw === undefined || raw.trim() === '') {
+    return { enabled: defaultValue, raw, valid: true }
+  }
+
+  const norm = raw.trim().toLowerCase()
+  if (['1', 'true', 'yes', 'y', 'on', 'enable', 'enabled'].includes(norm)) {
+    return { enabled: true, raw, valid: true }
+  }
+  if (['0', 'false', 'no', 'n', 'off', 'disable', 'disabled'].includes(norm)) {
+    return { enabled: false, raw, valid: true }
+  }
+
+  return { enabled: defaultValue, raw, valid: false }
+}
+
 export default class MCPProvider {
   private server: McpServer | undefined
   private expressApp: express.Application
   private httpServer: ReturnType<express.Application['listen']> | undefined
+  private udsServer: ReturnType<express.Application['listen']> | undefined
+  private udsPath: string | undefined
   private readonly _logger: LogProvider
   private readonly _config: ConfigProvider
   private readonly _fsal: FSAL
@@ -21,6 +42,8 @@ export default class MCPProvider {
     this.server = undefined
     this.expressApp = express()
     this.httpServer = undefined
+    this.udsServer = undefined
+    this.udsPath = undefined
 
     this.expressApp.use(express.json())
     this.expressApp.get('/message', async (req, res) => {
@@ -157,14 +180,73 @@ export default class MCPProvider {
   async boot (): Promise<void> {
     this._logger.verbose('MCP provider booting up …')
 
-    // SECURITY: Never bind the MCP server to anything but the local loopback
+    const httpToggle = readToggleEnv('ZETTLR_MCP_HTTP', true)
+    const udsToggle = readToggleEnv('ZETTLR_MCP_UDS', true)
+
+    if (!httpToggle.valid) {
+      this._logger.warning(`[MCP] Invalid value for ZETTLR_MCP_HTTP="${httpToggle.raw as string}". Using default: enabled.`)
+    }
+    if (!udsToggle.valid) {
+      this._logger.warning(`[MCP] Invalid value for ZETTLR_MCP_UDS="${udsToggle.raw as string}". Using default: enabled.`)
+    }
+
+    if (!httpToggle.enabled && !udsToggle.enabled) {
+      this._logger.warning('[MCP] Both transports are disabled (ZETTLR_MCP_HTTP=0 and ZETTLR_MCP_UDS=0). MCP server will not be reachable.')
+      return
+    }
+
+    // SECURITY: Never bind the MCP HTTP server to anything but the local loopback
     // interface. Express will otherwise bind to all interfaces (0.0.0.0),
     // which would expose the MCP endpoints to the LAN.
-    const HOST = '127.0.0.1'
-    const PORT = 3001
-    this.httpServer = this.expressApp.listen(PORT, HOST, () => {
-      this._logger.verbose(`MCP Streamable HTTP Server listening on http://${HOST}:${PORT}`)
-    })
+    if (httpToggle.enabled) {
+      const HOST = '127.0.0.1'
+      const PORT = 3001
+      this.httpServer = this.expressApp.listen(PORT, HOST, () => {
+        this._logger.verbose(`MCP HTTP listening on http://${HOST}:${PORT}`)
+      })
+    } else {
+      this._logger.info('[MCP] HTTP transport disabled via ZETTLR_MCP_HTTP=0')
+    }
+
+    // UDS transport (HTTP over Unix Domain Socket), useful for local-only clients.
+    // Note: Not available on Windows.
+    if (udsToggle.enabled) {
+      if (process.platform === 'win32') {
+        this._logger.warning('[MCP] UDS transport requested, but is not supported on Windows. Skipping.')
+      } else {
+        const defaultSockPath = path.join(app.getPath('userData'), 'zettlr-mcp.sock')
+        const sockPath = (process.env.ZETTLR_MCP_UDS_PATH !== undefined && process.env.ZETTLR_MCP_UDS_PATH.trim() !== '')
+          ? process.env.ZETTLR_MCP_UDS_PATH.trim()
+          : defaultSockPath
+
+        // Ensure we don't clobber a non-socket file.
+        try {
+          const st = await fs.lstat(sockPath)
+          if (st.isSocket()) {
+            await fs.unlink(sockPath)
+          } else {
+            throw new Error(`UDS path exists and is not a socket: ${sockPath}`)
+          }
+        } catch (err: any) {
+          if (err?.code !== 'ENOENT') {
+            throw err
+          }
+        }
+
+        this.udsPath = sockPath
+        this.udsServer = this.expressApp.listen(sockPath, async () => {
+          // Restrict access: owner read/write only (best-effort).
+          try {
+            await fs.chmod(sockPath, 0o600)
+          } catch (err) {
+            this._logger.warning(`[MCP] Could not chmod UDS socket to 0600: ${(err as Error).message}`)
+          }
+          this._logger.verbose(`MCP UDS listening on unix:${sockPath}`)
+        })
+      }
+    } else {
+      this._logger.info('[MCP] UDS transport disabled via ZETTLR_MCP_UDS=0')
+    }
   }
 
   async shutdown (): Promise<void> {
@@ -172,6 +254,23 @@ export default class MCPProvider {
       this._logger.verbose('Shutting down MCP HTTP server …')
       await new Promise<void>((resolve) => this.httpServer?.close(() => resolve()))
       this.httpServer = undefined
+    }
+    if (this.udsServer) {
+      this._logger.verbose('Shutting down MCP UDS server …')
+      await new Promise<void>((resolve) => this.udsServer?.close(() => resolve()))
+      this.udsServer = undefined
+      if (this.udsPath !== undefined) {
+        try {
+          await fs.unlink(this.udsPath)
+        } catch (err: any) {
+          // Ignore missing socket file.
+          if (err?.code !== 'ENOENT') {
+            this._logger.warning(`[MCP] Could not remove UDS socket file: ${err.message as string}`)
+          }
+        } finally {
+          this.udsPath = undefined
+        }
+      }
     }
     if (this.server) {
       this._logger.verbose('Shutting down MCP server …')
