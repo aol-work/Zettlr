@@ -15,10 +15,10 @@ function readToggleEnv (envVarName: string, defaultValue: boolean): { enabled: b
   }
 
   const norm = raw.trim().toLowerCase()
-  if (['1', 'true', 'yes', 'y', 'on', 'enable', 'enabled'].includes(norm)) {
+  if ([ '1', 'true', 'yes', 'y', 'on', 'enable', 'enabled' ].includes(norm)) {
     return { enabled: true, raw, valid: true }
   }
-  if (['0', 'false', 'no', 'n', 'off', 'disable', 'disabled'].includes(norm)) {
+  if ([ '0', 'false', 'no', 'n', 'off', 'disable', 'disabled' ].includes(norm)) {
     return { enabled: false, raw, valid: true }
   }
 
@@ -184,10 +184,10 @@ export default class MCPProvider {
     const udsToggle = readToggleEnv('ZETTLR_MCP_UDS', true)
 
     if (!httpToggle.valid) {
-      this._logger.warning(`[MCP] Invalid value for ZETTLR_MCP_HTTP="${httpToggle.raw as string}". Using default: enabled.`)
+      this._logger.warning(`[MCP] Invalid value for ZETTLR_MCP_HTTP="${httpToggle.raw!}". Using default: enabled.`)
     }
     if (!udsToggle.valid) {
-      this._logger.warning(`[MCP] Invalid value for ZETTLR_MCP_UDS="${udsToggle.raw as string}". Using default: enabled.`)
+      this._logger.warning(`[MCP] Invalid value for ZETTLR_MCP_UDS="${udsToggle.raw!}". Using default: enabled.`)
     }
 
     if (!httpToggle.enabled && !udsToggle.enabled) {
